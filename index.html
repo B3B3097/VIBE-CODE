@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VIBE CODE — AI Code Generator</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-css.min.js" defer></script>
+<style>
+:root{
+  --bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--border:#30363d;
+  --text:#e6edf3;--text2:#8b949e;--accent:#58a6ff;
+  --green:#3fb950;--orange:#d29922;--red:#f85149;
+  --think:#0f1e30;--think-bd:#264d82;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* header */
+header{background:var(--bg2);border-bottom:1px solid var(--border);padding:11px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0}
+.logo{font-size:19px;font-weight:700;letter-spacing:3px;color:var(--accent)}
+.logo span{color:var(--text)}
+.tagline{color:var(--text2);font-size:12px}
+header .spacer{flex:1}
+.hbtn{background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:5px 13px;border-radius:6px;cursor:pointer;font-size:12px;transition:.15s}
+.hbtn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* drawer */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99}
+.overlay.open{display:block}
+.drawer{position:fixed;top:0;right:-440px;width:440px;height:100%;background:var(--bg2);border-left:1px solid var(--border);z-index:100;padding:24px 20px;transition:right .25s ease;overflow-y:auto}
+.drawer.open{right:0}
+.drawer h3{font-size:15px;margin-bottom:18px}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:11px;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px}
+.field input,.field select{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 11px;border-radius:6px;font-size:13px;outline:none}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.hint{font-size:11px;color:var(--text2);margin-top:4px}
+.hint a{color:var(--accent)}
+.save-btn{width:100%;background:var(--accent);border:none;color:#000;padding:9px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;margin-top:6px}
+.save-btn:hover{opacity:.85}
+
+/* prompt */
+.prompt-bar{padding:12px 18px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+.prompt-wrap{display:flex;gap:10px;align-items:flex-end}
+#prompt{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:8px;font-size:13px;line-height:1.55;resize:none;min-height:76px;max-height:180px;outline:none;font-family:inherit}
+#prompt:focus{border-color:var(--accent)}
+#prompt::placeholder{color:var(--text2)}
+.btns{display:flex;flex-direction:column;gap:6px;align-items:stretch}
+#gen-btn{background:var(--accent);border:none;color:#000;padding:11px 20px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+#gen-btn:hover:not(:disabled){box-shadow:0 4px 14px rgba(88,166,255,.35)}
+#gen-btn:disabled{opacity:.45;cursor:not-allowed}
+#stop-btn{display:none;background:var(--red);border:none;color:#fff;padding:7px 20px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
+.model-tag{font-size:11px;color:var(--text2);text-align:center}
+.tok-bar{font-size:11px;color:var(--text2);margin-top:6px}
+
+/* panels */
+.panels{flex:1;display:flex;overflow:hidden;min-height:0}
+.panel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.panel+.panel{border-left:1px solid var(--border)}
+.ph{background:var(--bg2);border-bottom:1px solid var(--border);padding:9px 14px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:var(--text2);display:flex;align-items:center;gap:7px;flex-shrink:0}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--text2);flex-shrink:0}
+.dot.pulse{animation:pulse 1s infinite}
+.dot.on{background:var(--green)}
+.dot.thinking{background:var(--orange)}
+.dot.code{background:var(--accent)}
+.pb{flex:1;overflow-y:auto;padding:14px}
+.pb::-webkit-scrollbar{width:5px}
+.pb::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* thinking */
+.think-wrap{background:var(--think);border:1px solid var(--think-bd);border-radius:8px;padding:12px;margin-bottom:10px}
+.think-inner{font-size:11.5px;color:#8eacc8;line-height:1.65;font-family:'Fira Code','Cascadia Code',monospace;white-space:pre-wrap;word-break:break-word;max-height:150px;overflow:hidden;transition:max-height .3s}
+.think-inner.expanded{max-height:none}
+.think-toggle{font-size:11px;color:var(--accent);cursor:pointer;margin-top:5px;display:inline-block;user-select:none}
+.iter-badge{display:inline-block;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-size:11px;padding:2px 9px;border-radius:12px;margin-bottom:8px}
+.status{color:var(--text2);font-size:11.5px;font-style:italic;margin:5px 0}
+
+/* code */
+.stream-preview{font-family:'Fira Code',monospace;font-size:11px;color:#7a9bb5;white-space:pre-wrap;word-break:break-word;padding:4px;background:var(--bg2);border-radius:6px;border:1px solid var(--border);margin-bottom:10px}
+.file-block{background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:10px}
+.file-hdr{background:var(--bg3);padding:7px 13px;font-size:11.5px;color:var(--text2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.copy-btn{font-size:11px;background:none;border:none;color:var(--accent);cursor:pointer}
+.file-block pre{margin:0!important;border-radius:0!important;max-height:380px;overflow-y:auto}
+.file-block pre code{font-size:11.5px!important}
+
+/* save box */
+.save-box{background:#0d1f0d;border:1px solid #2d7a2d;border-radius:8px;padding:14px;margin-top:10px}
+.save-title{color:var(--green);font-weight:700;font-size:13px;margin-bottom:6px}
+.folder-pill{font-family:'Fira Code',monospace;background:var(--bg3);padding:5px 11px;border-radius:4px;font-size:12px;color:var(--accent);display:inline-block;margin:5px 0}
+.save-box a{color:var(--accent);font-size:12px;text-decoration:none}
+.save-box a:hover{text-decoration:underline}
+
+/* empty */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text2);gap:8px;opacity:.5}
+.empty svg{width:44px;height:44px}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</head>
+<body>
+
+<div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+
+<!-- Settings drawer -->
+<div class="drawer" id="drawer">
+  <h3>⚙️ Настройки</h3>
+  <div class="field">
+    <label>GitHub Token</label>
+    <input type="password" id="s-tok" placeholder="github_pat_..."/>
+    <div class="hint">Разрешения: <code>repo</code> + <code>models:read</code><br>
+    <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank">→ Создать токен</a> (хранится только в браузере)</div>
+  </div>
+  <div class="field">
+    <label>Репозиторий (owner/repo)</label>
+    <input type="text" id="s-repo" placeholder="B3B3097/VIBE-CODE"/>
+    <div class="hint">Куда сохранять сгенерированный код</div>
+  </div>
+  <div class="field">
+    <label>AI Модель</label>
+    <select id="s-model">
+      <option value="o3-mini">o3-mini — рассуждения + код ⭐</option>
+      <option value="o1">o1 — глубокое мышление</option>
+      <option value="gpt-4o">GPT-4o — быстрый и точный</option>
+      <option value="DeepSeek-V3">DeepSeek-V3 — open source</option>
+      <option value="Codestral-2501">Codestral-2501 — специалист по коду</option>
+      <option value="Llama-3.3-70B-Instruct">Llama-3.3-70B — бесплатная</option>
+    </select>
+  </div>
+  <div class="field">
+    <label>Макс. токенов на ответ</label>
+    <input type="number" id="s-maxtok" value="16384" min="1000" max="100000"/>
+    <div class="hint">GitHub Models поддерживает до ~100 000 токенов</div>
+  </div>
+  <div class="field">
+    <label>Итерации (авто-проверка кода)</label>
+    <input type="number" id="s-iters" value="2" min="1" max="8"/>
+    <div class="hint">После генерации модель проверяет и дорабатывает код N раз</div>
+  </div>
+  <button class="save-btn" onclick="saveSettings()">💾 Сохранить</button>
+</div>
+
+<!-- Header -->
+<header>
+  <div class="logo">VIBE<span>CODE</span></div>
+  <div class="tagline">AI Code Generator · GitHub Models · Streaming Reasoning</div>
+  <div class="spacer"></div>
+  <button class="hbtn" onclick="openDrawer()">⚙️ Настройки</button>
+</header>
+
+<!-- Prompt bar -->
+<div class="prompt-bar">
+  <div class="prompt-wrap">
+    <textarea id="prompt"
+      placeholder="Опишите задачу... Пример: «Telegram бот на Python + aiogram 3. SQLite БД. Команды /add задачу, /list, /done. Уведомления в 9:00 каждый день.»"></textarea>
+    <div class="btns">
+      <button id="gen-btn" onclick="generate()">⚡ Сгенерировать</button>
+      <button id="stop-btn" onclick="stopGen()">⬛ Стоп</button>
+      <div class="model-tag" id="model-tag">o3-mini</div>
+    </div>
+  </div>
+  <div class="tok-bar" id="tok-bar"></div>
+</div>
+
+<!-- Panels -->
+<div class="panels">
+  <div class="panel">
+    <div class="ph"><div class="dot" id="d-think"></div><span id="l-think">Рассуждения модели</span></div>
+    <div class="pb" id="think-panel">
+      <div class="empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+        </svg>
+        <p>Здесь появится процесс мышления модели</p>
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ph"><div class="dot code" id="d-code"></div><span id="l-code">Сгенерированный код</span></div>
+    <div class="pb" id="code-panel">
+      <div class="empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+        </svg>
+        <p>Файлы появятся здесь после генерации</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══ CONFIG ════════════════════════════════════════════════════════════════
+const AI_URL = 'https://models.inference.ai.azure.com/chat/completions';
+let cfg = {}, controller = null, totalTok = 0;
+
+function loadSettings() {
+  try { cfg = JSON.parse(localStorage.getItem('vc-cfg') || '{}'); } catch(_) { cfg = {}; }
+  cfg.token  = cfg.token  || '';
+  cfg.repo   = cfg.repo   || 'B3B3097/VIBE-CODE';
+  cfg.model  = cfg.model  || 'o3-mini';
+  cfg.maxtok = cfg.maxtok || 16384;
+  cfg.iters  = cfg.iters  || 2;
+  document.getElementById('s-tok').value   = cfg.token;
+  document.getElementById('s-repo').value  = cfg.repo;
+  document.getElementById('s-model').value = cfg.model;
+  document.getElementById('s-maxtok').value= cfg.maxtok;
+  document.getElementById('s-iters').value = cfg.iters;
+  document.getElementById('model-tag').textContent = cfg.model;
+}
+function saveSettings() {
+  cfg.token  = document.getElementById('s-tok').value.trim();
+  cfg.repo   = document.getElementById('s-repo').value.trim();
+  cfg.model  = document.getElementById('s-model').value;
+  cfg.maxtok = +document.getElementById('s-maxtok').value;
+  cfg.iters  = +document.getElementById('s-iters').value;
+  localStorage.setItem('vc-cfg', JSON.stringify(cfg));
+  document.getElementById('model-tag').textContent = cfg.model;
+  closeDrawer();
+}
+function openDrawer()  { document.getElementById('drawer').classList.add('open'); document.getElementById('overlay').classList.add('open'); }
+function closeDrawer() { document.getElementById('drawer').classList.remove('open'); document.getElementById('overlay').classList.remove('open'); }
+
+// ═══ STREAMING AI CALL ════════════════════════════════════════════════════
+// Returns { think: string, code: string }
+async function callAI(messages, onThink, onCode) {
+  const body = {
+    model: cfg.model,
+    messages,
+    stream: true,
+    max_tokens: cfg.maxtok,
+  };
+  if (cfg.model === 'o3-mini') body.reasoning_effort = 'high';
+
+  const resp = await fetch(AI_URL, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${cfg.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`API ${resp.status}: ${err.slice(0,200)}`);
+  }
+
+  const reader = resp.body.getReader();
+  const dec    = new TextDecoder();
+  let thinkFull = '', codeFull = '', buf = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const raw = line.slice(6).trim();
+      if (raw === '[DONE]') continue;
+      try {
+        const j    = JSON.parse(raw);
+        const rtok = j.choices?.[0]?.delta?.reasoning_content || '';
+        const tok  = j.choices?.[0]?.delta?.content || '';
+        if (rtok) { thinkFull += rtok; onThink(rtok); }
+        if (tok)  { codeFull  += tok;  onCode(tok);   }
+        if (rtok || tok) {
+          totalTok++;
+          document.getElementById('tok-bar').textContent =
+            `⚡ Токенов сгенерировано: ${totalTok.toLocaleString()}`;
+        }
+      } catch(_) {}
+    }
+  }
+  return { think: thinkFull, code: codeFull };
+}
+
+// ═══ PARSE FILES FROM RESPONSE ════════════════════════════════════════════
+function parseFiles(text) {
+  const files = [];
+  // Match ```lang\n# filename or // filename\n...code...\n```
+  const re = /```(\w*)\n(?:(?:#|\/\/)\s*(\S+\.?\S*)\n)?([^]*?)```/g;
+  let m, idx = 0;
+  while ((m = re.exec(text)) !== null) {
+    const lang    = m[1] || 'text';
+    const name    = m[2] || defaultName(lang, idx);
+    const content = m[3] || '';
+    if (content.trim()) { files.push({ lang, name, content }); idx++; }
+  }
+  return files;
+}
+
+function defaultName(lang, i) {
+  const map = {
+    python:'main.py', py:'main.py', javascript:'index.js', js:'index.js',
+    typescript:'index.ts', ts:'index.ts', html:'index.html', css:'style.css',
+    bash:'run.sh', sh:'run.sh', json:'config.json', sql:'schema.sql',
+    go:'main.go', rust:'main.rs', dockerfile:'Dockerfile',
+  };
+  const base = map[lang.toLowerCase()] || `file.txt`;
+  return i === 0 ? base : base.replace(/(\.\w+)$/, `_${i}$1`);
+}
+
+function makeFolderName(prompt) {
+  const d    = new Date();
+  const date = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const slug = prompt.slice(0,35).toLowerCase()
+    .replace(/[^a-zа-яёa-z0-9]+/gi,'-').replace(/(^-|-$)/g,'') || 'project';
+  return `output/${date}_${slug}`;
+}
+function pad(n) { return String(n).padStart(2,'0'); }
+
+// ═══ GITHUB SAVE ══════════════════════════════════════════════════════════
+async function saveToGitHub(folder, files, prompt) {
+  if (!cfg.token || !cfg.repo) return null;
+  const base = `https://api.github.com/repos/${cfg.repo}/contents`;
+  const hdr  = {
+    'Authorization': `Bearer ${cfg.token}`,
+    'Accept': 'application/vnd.github.v3+json',
+    'Content-Type': 'application/json',
+  };
+
+  // prepend README
+  const readme = `# ${folder.split('/').pop()}\n\n**Prompt:** ${prompt}\n\n**Model:** ${cfg.model}\n**Generated:** ${new Date().toISOString()}\n`;
+  const allFiles = [{ name:'README.md', lang:'markdown', content: readme }, ...files];
+
+  const saved = [];
+  for (const f of allFiles) {
+    const path   = `${folder}/${f.name}`;
+    const b64    = btoa(unescape(encodeURIComponent(f.content)));
+    let   sha    = null;
+    try {
+      const ex = await fetch(`${base}/${path}`, { headers: hdr });
+      if (ex.ok) sha = (await ex.json()).sha;
+    } catch(_) {}
+    const body = JSON.stringify({ message:`feat: add ${f.name}`, content: b64, ...(sha?{sha}:{}) });
+    const r    = await fetch(`${base}/${path}`, { method:'PUT', headers: hdr, body });
+    if (r.ok) saved.push(f.name);
+  }
+  return saved;
+}
+
+// ═══ UI HELPERS ═══════════════════════════════════════════════════════════
+let thinkWrap = null, thinkInner = null, thinkText = '';
+
+function clearEmpty(id) {
+  const el = document.getElementById(id).querySelector('.empty');
+  if (el) el.remove();
+}
+
+function addIterBadge(tp, label) {
+  const b = document.createElement('div');
+  b.className = 'iter-badge';
+  b.textContent = label;
+  tp.appendChild(b);
+}
+
+function newThinkBlock(tp) {
+  thinkWrap  = document.createElement('div');
+  thinkWrap.className = 'think-wrap';
+  thinkInner = document.createElement('div');
+  thinkInner.className = 'think-inner';
+  const toggle = document.createElement('span');
+  toggle.className = 'think-toggle';
+  toggle.textContent = '▼ Развернуть';
+  toggle.onclick = () => {
+    thinkInner.classList.toggle('expanded');
+    toggle.textContent = thinkInner.classList.contains('expanded') ? '▲ Свернуть' : '▼ Развернуть';
+  };
+  thinkWrap.append(thinkInner, toggle);
+  tp.appendChild(thinkWrap);
+  thinkText = '';
+}
+
+function appendThink(chunk) {
+  thinkText += chunk;
+  if (thinkInner) {
+    thinkInner.textContent = thinkText;
+    thinkWrap.scrollIntoView({ block:'end', behavior:'smooth' });
+  }
+}
+
+let streamEl = null, streamText = '';
+
+function newCodeStream(cp) {
+  streamEl   = document.createElement('pre');
+  streamEl.className = 'stream-preview';
+  streamText = '';
+  cp.appendChild(streamEl);
+}
+
+function appendCodeStream(chunk) {
+  streamText += chunk;
+  if (streamEl) streamEl.textContent = streamText.slice(-3000);
+}
+
+function addStatus(container, text) {
+  const d = document.createElement('div');
+  d.className = 'status';
+  d.textContent = text;
+  container.appendChild(d);
+}
+
+function renderFiles(files, cp) {
+  if (streamEl) { streamEl.remove(); streamEl = null; }
+  for (const f of files) {
+    const wrap = document.createElement('div');
+    wrap.className = 'file-block';
+    wrap.innerHTML = `
+      <div class="file-hdr">
+        📄 ${esc(f.name)}
+        <button class="copy-btn" onclick="copyFile(this)">📋 Копировать</button>
+      </div>
+      <pre><code class="language-${f.lang || 'text'}">${esc(f.content)}</code></pre>`;
+    cp.appendChild(wrap);
+    try { Prism.highlightAllUnder(wrap); } catch(_) {}
+  }
+}
+
+function showSaveBox(cp, folder, saved) {
+  const box = document.createElement('div');
+  box.className = 'save-box';
+  const url = `https://github.com/${cfg.repo}/tree/main/${folder}`;
+  box.innerHTML = `
+    <div class="save-title">✅ Код сохранён в репозиторий</div>
+    <div class="folder-pill">${esc(folder)}/</div><br>
+    <a href="${esc(url)}" target="_blank">🔗 Открыть в GitHub →</a>
+    <div style="margin-top:8px;font-size:11px;color:#8b949e">Файлы: ${saved.map(esc).join(' · ')}</div>`;
+  cp.appendChild(box);
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function copyFile(btn) {
+  const code = btn.closest('.file-block').querySelector('code');
+  navigator.clipboard.writeText(code.textContent)
+    .then(() => { btn.textContent = '✅ Скопировано'; setTimeout(()=>btn.textContent='📋 Копировать',1500); });
+}
+
+// ═══ MAIN GENERATE ════════════════════════════════════════════════════════
+async function generate() {
+  const prompt = document.getElementById('prompt').value.trim();
+  if (!prompt)     { alert('Введите запрос!'); return; }
+  if (!cfg.token)  { alert('Укажите GitHub Token в ⚙️ Настройках!'); openDrawer(); return; }
+
+  controller = new AbortController();
+  totalTok   = 0;
+
+  // Reset UI
+  document.getElementById('think-panel').innerHTML = '';
+  document.getElementById('code-panel').innerHTML  = '';
+  document.getElementById('gen-btn').disabled      = true;
+  document.getElementById('stop-btn').style.display= 'block';
+  document.getElementById('tok-bar').textContent   = '';
+  document.getElementById('d-think').className     = 'dot thinking pulse';
+  document.getElementById('l-think').textContent   = 'Рассуждения модели';
+  document.getElementById('l-code').textContent    = 'Генерация...';
+
+  const tp = document.getElementById('think-panel');
+  const cp = document.getElementById('code-panel');
+  clearEmpty('think-panel');
+  clearEmpty('code-panel');
+
+  const folder    = makeFolderName(prompt);
+  let   lastFiles = [];
+
+  const SYSTEM = `You are an elite software engineer. Given a task:
+1. Write COMPLETE, production-ready, working code — no placeholders, no "TODO"
+2. Mark each file with its name in a comment on the FIRST LINE of the code block:
+   \`\`\`python
+   # main.py
+   ...code...
+   \`\`\`
+3. Include ALL required files: main code, requirements.txt or package.json, README.md if needed
+4. Code must run immediately without any modifications
+5. After writing, mentally run through the code to verify it works`;
+
+  const messages = [{ role:'system', content: SYSTEM }, { role:'user', content: prompt }];
+
+  try {
+    for (let iter = 0; iter < cfg.iters; iter++) {
+      addIterBadge(tp, iter===0 ? '🚀 Генерация кода' : `🔄 Итерация ${iter+1} — Проверка и улучшение`);
+      newThinkBlock(tp);
+      newCodeStream(cp);
+
+      const { code: codeText } = await callAI(
+        messages,
+        (rtok) => appendThink(rtok),
+        (tok)  => appendCodeStream(tok),
+      );
+
+      const files = parseFiles(codeText);
+      if (files.length) lastFiles = files;
+
+      renderFiles(files, cp);
+      addStatus(tp, iter===0 ? '✅ Первая генерация завершена' : `✅ Итерация ${iter+1} завершена`);
+
+      if (iter < cfg.iters - 1) {
+        messages.push({ role:'assistant', content: codeText });
+        messages.push({ role:'user', content:
+          `Review your code critically:
+1. Find any bugs, missing imports, typos, logic errors
+2. Check all edge cases are handled
+3. Verify the code is complete and runnable
+4. If you find ANY issues → rewrite the COMPLETE corrected version
+5. If everything is correct → write exactly "CODE_IS_READY" on the first line
+
+Be honest and thorough.`
+        });
+        if (codeText.includes('CODE_IS_READY')) {
+          addStatus(tp, '🎯 Модель подтвердила: код готов');
+          break;
+        }
+      }
+    }
+
+    // Save
+    document.getElementById('d-think').className = 'dot on';
+    document.getElementById('l-code').textContent = '💾 Сохранение в GitHub...';
+
+    if (lastFiles.length && cfg.token && cfg.repo) {
+      const saved = await saveToGitHub(folder, lastFiles, prompt);
+      if (saved && saved.length) showSaveBox(cp, folder, saved);
+    } else if (!cfg.repo) {
+      addStatus(cp, '⚠️ Репозиторий не задан — укажите в настройках для автосохранения');
+    }
+
+    document.getElementById('l-code').textContent =
+      `✅ Готово · ${lastFiles.length} файл(ов) · папка: ${folder.split('/').pop()}`;
+
+  } catch(e) {
+    if (e.name === 'AbortError') {
+      addStatus(tp, '⬛ Остановлено');
+    } else {
+      addStatus(tp, `❌ Ошибка: ${e.message}`);
+      console.error(e);
+    }
+    document.getElementById('d-think').className = 'dot';
+  } finally {
+    document.getElementById('gen-btn').disabled      = false;
+    document.getElementById('stop-btn').style.display= 'none';
+  }
+}
+
+function stopGen() { controller?.abort(); }
+
+// init
+document.addEventListener('DOMContentLoaded', () => {
+  loadSettings();
+  document.getElementById('prompt').addEventListener('keydown', e => {
+    if (e.key==='Enter' && (e.ctrlKey||e.metaKey)) generate();
+  });
+});
+</script>
+</body>
+</html>
