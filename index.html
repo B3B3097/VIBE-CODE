@@ -3,558 +3,543 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VIBE CODE — AI Code Generator</title>
+<title>VIBE CODE — Local AI Code Generator</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-css.min.js" defer></script>
 <style>
 :root{
   --bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--border:#30363d;
   --text:#e6edf3;--text2:#8b949e;--accent:#58a6ff;
-  --green:#3fb950;--orange:#d29922;--red:#f85149;
-  --think:#0f1e30;--think-bd:#264d82;
+  --green:#3fb950;--orange:#d29922;--red:#f85149;--purple:#bc8cff;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
 
-/* header */
-header{background:var(--bg2);border-bottom:1px solid var(--border);padding:11px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0}
-.logo{font-size:19px;font-weight:700;letter-spacing:3px;color:var(--accent)}
+header{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:14px}
+.logo{font-size:20px;font-weight:800;letter-spacing:3px;color:var(--accent)}
 .logo span{color:var(--text)}
-.tagline{color:var(--text2);font-size:12px}
+.badge{background:var(--bg3);border:1px solid var(--border);color:var(--purple);font-size:11px;padding:2px 9px;border-radius:12px}
 header .spacer{flex:1}
-.hbtn{background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:5px 13px;border-radius:6px;cursor:pointer;font-size:12px;transition:.15s}
+.hbtn{background:none;border:1px solid var(--border);color:var(--text2);padding:5px 13px;border-radius:6px;cursor:pointer;font-size:12px}
 .hbtn:hover{border-color:var(--accent);color:var(--accent)}
 
-/* drawer */
-.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99}
 .overlay.open{display:block}
-.drawer{position:fixed;top:0;right:-440px;width:440px;height:100%;background:var(--bg2);border-left:1px solid var(--border);z-index:100;padding:24px 20px;transition:right .25s ease;overflow-y:auto}
+.drawer{position:fixed;top:0;right:-460px;width:460px;height:100%;background:var(--bg2);border-left:1px solid var(--border);z-index:100;padding:24px 20px;transition:right .25s;overflow-y:auto}
 .drawer.open{right:0}
-.drawer h3{font-size:15px;margin-bottom:18px}
+.drawer h3{font-size:15px;margin-bottom:18px;color:var(--text)}
 .field{margin-bottom:14px}
-.field label{display:block;font-size:11px;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px}
-.field input,.field select{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 11px;border-radius:6px;font-size:13px;outline:none}
+.field label{display:block;font-size:11px;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.6px}
+.field input,.field select,.field textarea{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 11px;border-radius:6px;font-size:13px;outline:none;font-family:inherit}
 .field input:focus,.field select:focus{border-color:var(--accent)}
-.hint{font-size:11px;color:var(--text2);margin-top:4px}
+.hint{font-size:11px;color:var(--text2);margin-top:4px;line-height:1.4}
 .hint a{color:var(--accent)}
-.save-btn{width:100%;background:var(--accent);border:none;color:#000;padding:9px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;margin-top:6px}
-.save-btn:hover{opacity:.85}
+.save-btn{width:100%;background:var(--accent);border:none;color:#000;padding:9px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;margin-top:8px}
+.save-btn:hover{opacity:.87}
 
-/* prompt */
-.prompt-bar{padding:12px 18px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+.main{flex:1;padding:24px;max-width:900px;margin:0 auto;width:100%}
+
+.prompt-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}
+.prompt-card h2{font-size:15px;color:var(--text2);margin-bottom:12px;font-weight:500}
 .prompt-wrap{display:flex;gap:10px;align-items:flex-end}
-#prompt{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:8px;font-size:13px;line-height:1.55;resize:none;min-height:76px;max-height:180px;outline:none;font-family:inherit}
+#prompt{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:12px;border-radius:8px;font-size:14px;line-height:1.55;resize:none;min-height:100px;outline:none;font-family:inherit}
 #prompt:focus{border-color:var(--accent)}
 #prompt::placeholder{color:var(--text2)}
-.btns{display:flex;flex-direction:column;gap:6px;align-items:stretch}
-#gen-btn{background:var(--accent);border:none;color:#000;padding:11px 20px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
-#gen-btn:hover:not(:disabled){box-shadow:0 4px 14px rgba(88,166,255,.35)}
-#gen-btn:disabled{opacity:.45;cursor:not-allowed}
-#stop-btn{display:none;background:var(--red);border:none;color:#fff;padding:7px 20px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
-.model-tag{font-size:11px;color:var(--text2);text-align:center}
-.tok-bar{font-size:11px;color:var(--text2);margin-top:6px}
+.right-col{display:flex;flex-direction:column;gap:8px;min-width:140px}
+#gen-btn{background:var(--accent);border:none;color:#000;padding:13px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;text-align:center}
+#gen-btn:hover:not(:disabled){box-shadow:0 4px 16px rgba(88,166,255,.35)}
+#gen-btn:disabled{opacity:.4;cursor:not-allowed}
+.opts{display:flex;gap:8px}
+.opt{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:6px 4px;border-radius:6px;font-size:12px;text-align:center;cursor:pointer;transition:.15s}
+.opt:hover{border-color:var(--accent)}
+.opt label{font-size:10px;display:block;color:var(--text2);margin-bottom:2px}
+.opt input,.opt select{background:none;border:none;color:var(--text);font-size:12px;width:100%;text-align:center;outline:none;cursor:pointer}
 
-/* panels */
-.panels{flex:1;display:flex;overflow:hidden;min-height:0}
-.panel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-.panel+.panel{border-left:1px solid var(--border)}
-.ph{background:var(--bg2);border-bottom:1px solid var(--border);padding:9px 14px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:var(--text2);display:flex;align-items:center;gap:7px;flex-shrink:0}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--text2);flex-shrink:0}
-.dot.pulse{animation:pulse 1s infinite}
-.dot.on{background:var(--green)}
-.dot.thinking{background:var(--orange)}
-.dot.code{background:var(--accent)}
-.pb{flex:1;overflow-y:auto;padding:14px}
-.pb::-webkit-scrollbar{width:5px}
-.pb::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.info-bar{font-size:12px;color:var(--text2);margin-top:8px}
+.info-bar a{color:var(--accent)}
 
-/* thinking */
-.think-wrap{background:var(--think);border:1px solid var(--think-bd);border-radius:8px;padding:12px;margin-bottom:10px}
-.think-inner{font-size:11.5px;color:#8eacc8;line-height:1.65;font-family:'Fira Code','Cascadia Code',monospace;white-space:pre-wrap;word-break:break-word;max-height:150px;overflow:hidden;transition:max-height .3s}
-.think-inner.expanded{max-height:none}
-.think-toggle{font-size:11px;color:var(--accent);cursor:pointer;margin-top:5px;display:inline-block;user-select:none}
-.iter-badge{display:inline-block;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-size:11px;padding:2px 9px;border-radius:12px;margin-bottom:8px}
-.status{color:var(--text2);font-size:11.5px;font-style:italic;margin:5px 0}
+/* Status panel */
+.status-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px;display:none}
+.status-card.visible{display:block}
+.status-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.spin{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+.status-title{font-size:14px;font-weight:600}
+.status-sub{font-size:12px;color:var(--text2);margin-top:2px}
+.progress-bar{height:3px;background:var(--border);border-radius:2px;margin-top:10px;overflow:hidden}
+.progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .5s}
+.status-log{font-family:'Fira Code',monospace;font-size:11px;color:#7a9bb5;margin-top:10px;max-height:120px;overflow-y:auto;line-height:1.6;white-space:pre-wrap}
+.actions-link{color:var(--accent);font-size:12px;text-decoration:none;margin-top:6px;display:inline-block}
+.actions-link:hover{text-decoration:underline}
+@keyframes spin{to{transform:rotate(360deg)}}
 
-/* code */
-.stream-preview{font-family:'Fira Code',monospace;font-size:11px;color:#7a9bb5;white-space:pre-wrap;word-break:break-word;padding:4px;background:var(--bg2);border-radius:6px;border:1px solid var(--border);margin-bottom:10px}
-.file-block{background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:10px}
-.file-hdr{background:var(--bg3);padding:7px 13px;font-size:11.5px;color:var(--text2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
-.copy-btn{font-size:11px;background:none;border:none;color:var(--accent);cursor:pointer}
-.file-block pre{margin:0!important;border-radius:0!important;max-height:380px;overflow-y:auto}
+/* Result panel */
+.result-card{background:var(--bg2);border:1px solid var(--green);border-radius:12px;padding:18px;margin-bottom:16px;display:none}
+.result-card.visible{display:block}
+.result-top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.result-icon{font-size:20px}
+.result-title{font-size:15px;font-weight:700;color:var(--green)}
+.result-sub{font-size:12px;color:var(--text2);margin-top:2px}
+.folder-pill{font-family:'Fira Code',monospace;background:var(--bg3);border:1px solid var(--border);padding:5px 12px;border-radius:5px;font-size:13px;color:var(--accent);display:inline-block;margin:4px 0}
+.result-links{margin-top:10px;display:flex;gap:12px;flex-wrap:wrap}
+.result-links a{color:var(--accent);font-size:12px;text-decoration:none}
+.result-links a:hover{text-decoration:underline}
+
+.files-grid{display:grid;gap:12px;margin-top:16px}
+.file-block{background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.file-hdr{padding:8px 14px;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--bg2)}
+.copy-btn{font-size:11px;background:none;border:none;color:var(--accent);cursor:pointer;padding:0}
+.file-block pre{margin:0!important;border-radius:0!important;max-height:400px;overflow-y:auto}
 .file-block pre code{font-size:11.5px!important}
 
-/* save box */
-.save-box{background:#0d1f0d;border:1px solid #2d7a2d;border-radius:8px;padding:14px;margin-top:10px}
-.save-title{color:var(--green);font-weight:700;font-size:13px;margin-bottom:6px}
-.folder-pill{font-family:'Fira Code',monospace;background:var(--bg3);padding:5px 11px;border-radius:4px;font-size:12px;color:var(--accent);display:inline-block;margin:5px 0}
-.save-box a{color:var(--accent);font-size:12px;text-decoration:none}
-.save-box a:hover{text-decoration:underline}
+/* History */
+.history{margin-top:24px}
+.history h3{font-size:13px;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.6px}
+.hist-item{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:8px;cursor:pointer;transition:.15s}
+.hist-item:hover{border-color:var(--accent)}
+.hist-prompt{font-size:13px;margin-bottom:4px}
+.hist-meta{font-size:11px;color:var(--text2)}
+.hist-meta a{color:var(--accent)}
 
-/* empty */
-.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text2);gap:8px;opacity:.5}
-.empty svg{width:44px;height:44px}
-
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.empty-history{color:var(--text2);font-size:13px;text-align:center;padding:32px;opacity:.5}
 </style>
 </head>
 <body>
 
 <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
-
-<!-- Settings drawer -->
 <div class="drawer" id="drawer">
   <h3>⚙️ Настройки</h3>
   <div class="field">
     <label>GitHub Token</label>
-    <input type="password" id="s-tok" placeholder="github_pat_..."/>
-    <div class="hint">Разрешения: <code>repo</code> + <code>models:read</code><br>
-    <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank">→ Создать токен</a> (хранится только в браузере)</div>
+    <input type="password" id="s-tok" placeholder="github_pat_..." />
+    <div class="hint">
+      Нужен для запуска Actions и чтения результатов.<br>
+      Разрешения: <code>repo</code> (все)<br>
+      <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank">→ Создать токен</a>
+      <br>Токен хранится только в вашем браузере (localStorage)
+    </div>
   </div>
   <div class="field">
     <label>Репозиторий (owner/repo)</label>
-    <input type="text" id="s-repo" placeholder="B3B3097/VIBE-CODE"/>
-    <div class="hint">Куда сохранять сгенерированный код</div>
+    <input type="text" id="s-repo" placeholder="B3B3097/VIBE-CODE" />
+    <div class="hint">Репозиторий с generate.py и workflow</div>
   </div>
   <div class="field">
-    <label>AI Модель</label>
-    <select id="s-model">
-      <option value="o3-mini">o3-mini — рассуждения + код ⭐</option>
-      <option value="o1">o1 — глубокое мышление</option>
-      <option value="gpt-4o">GPT-4o — быстрый и точный</option>
-      <option value="DeepSeek-V3">DeepSeek-V3 — open source</option>
-      <option value="Codestral-2501">Codestral-2501 — специалист по коду</option>
-      <option value="Llama-3.3-70B-Instruct">Llama-3.3-70B — бесплатная</option>
-    </select>
+    <label>Итерации (тест + фикс)</label>
+    <input type="number" id="s-iters" value="3" min="1" max="10" />
+    <div class="hint">Сколько раз модель проверяет и исправляет код</div>
   </div>
   <div class="field">
     <label>Макс. токенов на ответ</label>
-    <input type="number" id="s-maxtok" value="16384" min="1000" max="100000"/>
-    <div class="hint">GitHub Models поддерживает до ~100 000 токенов</div>
-  </div>
-  <div class="field">
-    <label>Итерации (авто-проверка кода)</label>
-    <input type="number" id="s-iters" value="2" min="1" max="8"/>
-    <div class="hint">После генерации модель проверяет и дорабатывает код N раз</div>
+    <input type="number" id="s-maxtok" value="32768" min="4096" max="131072" />
+    <div class="hint">Больше токенов = длиннее код, но дольше генерация</div>
   </div>
   <button class="save-btn" onclick="saveSettings()">💾 Сохранить</button>
 </div>
 
-<!-- Header -->
 <header>
   <div class="logo">VIBE<span>CODE</span></div>
-  <div class="tagline">AI Code Generator · GitHub Models · Streaming Reasoning</div>
+  <div class="badge">🤖 Local AI · Qwen2.5-Coder-7B</div>
   <div class="spacer"></div>
   <button class="hbtn" onclick="openDrawer()">⚙️ Настройки</button>
 </header>
 
-<!-- Prompt bar -->
-<div class="prompt-bar">
-  <div class="prompt-wrap">
-    <textarea id="prompt"
-      placeholder="Опишите задачу... Пример: «Telegram бот на Python + aiogram 3. SQLite БД. Команды /add задачу, /list, /done. Уведомления в 9:00 каждый день.»"></textarea>
-    <div class="btns">
-      <button id="gen-btn" onclick="generate()">⚡ Сгенерировать</button>
-      <button id="stop-btn" onclick="stopGen()">⬛ Стоп</button>
-      <div class="model-tag" id="model-tag">o3-mini</div>
-    </div>
-  </div>
-  <div class="tok-bar" id="tok-bar"></div>
-</div>
+<div class="main">
 
-<!-- Panels -->
-<div class="panels">
-  <div class="panel">
-    <div class="ph"><div class="dot" id="d-think"></div><span id="l-think">Рассуждения модели</span></div>
-    <div class="pb" id="think-panel">
-      <div class="empty">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-        </svg>
-        <p>Здесь появится процесс мышления модели</p>
+  <!-- Prompt -->
+  <div class="prompt-card">
+    <h2>💬 Что нужно сделать?</h2>
+    <div class="prompt-wrap">
+      <textarea id="prompt"
+        placeholder="Опишите задачу... Например:
+
+Telegram бот на Python + aiogram 3.
+Команды: /add задачу, /list, /done N, /delete N.
+Хранение в SQLite. Напоминания через APScheduler каждые 2 часа.
+Красивые кнопки InlineKeyboard."></textarea>
+      <div class="right-col">
+        <button id="gen-btn" onclick="generate()">⚡ Запустить</button>
+        <div class="opts">
+          <div class="opt">
+            <label>Итер.</label>
+            <input type="number" id="q-iters" value="3" min="1" max="8" style="width:36px">
+          </div>
+          <div class="opt">
+            <label>Токены</label>
+            <select id="q-maxtok">
+              <option value="8192">8K</option>
+              <option value="16384">16K</option>
+              <option value="32768" selected>32K</option>
+              <option value="65536">64K</option>
+            </select>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
-  <div class="panel">
-    <div class="ph"><div class="dot code" id="d-code"></div><span id="l-code">Сгенерированный код</span></div>
-    <div class="pb" id="code-panel">
-      <div class="empty">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
-        </svg>
-        <p>Файлы появятся здесь после генерации</p>
-      </div>
+    <div class="info-bar" id="info-bar">
+      Ctrl+Enter — запустить · Модель: Qwen2.5-Coder-7B (локальная, ~4.7 GB кэш)
     </div>
   </div>
+
+  <!-- Status -->
+  <div class="status-card" id="status-card">
+    <div class="status-top">
+      <div class="spin" id="spin"></div>
+      <div>
+        <div class="status-title" id="status-title">Подготовка...</div>
+        <div class="status-sub" id="status-sub"></div>
+      </div>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="prog" style="width:5%"></div></div>
+    <div class="status-log" id="status-log"></div>
+    <a class="actions-link" id="actions-link" target="_blank" style="display:none">
+      📋 Смотреть лог в GitHub Actions →
+    </a>
+  </div>
+
+  <!-- Result -->
+  <div class="result-card" id="result-card">
+    <div class="result-top">
+      <div class="result-icon">✅</div>
+      <div>
+        <div class="result-title">Код сгенерирован!</div>
+        <div class="result-sub" id="result-sub"></div>
+      </div>
+    </div>
+    <div>
+      Папка: <span class="folder-pill" id="result-folder"></span>
+    </div>
+    <div class="result-links" id="result-links"></div>
+    <div class="files-grid" id="files-grid"></div>
+  </div>
+
+  <!-- History -->
+  <div class="history">
+    <h3>История генераций</h3>
+    <div id="history-list"><div class="empty-history">Генераций ещё не было</div></div>
+  </div>
+
 </div>
 
 <script>
-// ═══ CONFIG ════════════════════════════════════════════════════════════════
-const AI_URL = 'https://models.inference.ai.azure.com/chat/completions';
-let cfg = {}, controller = null, totalTok = 0;
+// ─── State ────────────────────────────────────────────────────────────────────
+let cfg = {}, pollTimer = null;
 
 function loadSettings() {
-  try { cfg = JSON.parse(localStorage.getItem('vc-cfg') || '{}'); } catch(_) { cfg = {}; }
+  try { cfg = JSON.parse(localStorage.getItem('vc2-cfg') || '{}'); } catch(_) { cfg = {}; }
   cfg.token  = cfg.token  || '';
   cfg.repo   = cfg.repo   || 'B3B3097/VIBE-CODE';
-  cfg.model  = cfg.model  || 'o3-mini';
-  cfg.maxtok = cfg.maxtok || 16384;
-  cfg.iters  = cfg.iters  || 2;
-  document.getElementById('s-tok').value   = cfg.token;
-  document.getElementById('s-repo').value  = cfg.repo;
-  document.getElementById('s-model').value = cfg.model;
-  document.getElementById('s-maxtok').value= cfg.maxtok;
-  document.getElementById('s-iters').value = cfg.iters;
-  document.getElementById('model-tag').textContent = cfg.model;
+  cfg.iters  = cfg.iters  || 3;
+  cfg.maxtok = cfg.maxtok || 32768;
+  document.getElementById('s-tok').value    = cfg.token;
+  document.getElementById('s-repo').value   = cfg.repo;
+  document.getElementById('s-iters').value  = cfg.iters;
+  document.getElementById('s-maxtok').value = cfg.maxtok;
+  document.getElementById('q-iters').value  = cfg.iters;
+  loadHistory();
 }
+
 function saveSettings() {
   cfg.token  = document.getElementById('s-tok').value.trim();
   cfg.repo   = document.getElementById('s-repo').value.trim();
-  cfg.model  = document.getElementById('s-model').value;
-  cfg.maxtok = +document.getElementById('s-maxtok').value;
   cfg.iters  = +document.getElementById('s-iters').value;
-  localStorage.setItem('vc-cfg', JSON.stringify(cfg));
-  document.getElementById('model-tag').textContent = cfg.model;
+  cfg.maxtok = +document.getElementById('s-maxtok').value;
+  localStorage.setItem('vc2-cfg', JSON.stringify(cfg));
   closeDrawer();
 }
+
 function openDrawer()  { document.getElementById('drawer').classList.add('open'); document.getElementById('overlay').classList.add('open'); }
 function closeDrawer() { document.getElementById('drawer').classList.remove('open'); document.getElementById('overlay').classList.remove('open'); }
 
-// ═══ STREAMING AI CALL ════════════════════════════════════════════════════
-// Returns { think: string, code: string }
-async function callAI(messages, onThink, onCode) {
-  const body = {
-    model: cfg.model,
-    messages,
-    stream: true,
-    max_tokens: cfg.maxtok,
-  };
-  if (cfg.model === 'o3-mini') body.reasoning_effort = 'high';
-
-  const resp = await fetch(AI_URL, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${cfg.token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: controller.signal,
+// ─── GitHub API helpers ───────────────────────────────────────────────────────
+async function ghFetch(path, opts = {}) {
+  const r = await fetch(`https://api.github.com${path}`, {
+    ...opts,
+    headers: {
+      'Authorization': `Bearer ${cfg.token}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+      ...(opts.headers || {}),
+    },
   });
-
-  if (!resp.ok) {
-    const err = await resp.text();
-    throw new Error(`API ${resp.status}: ${err.slice(0,200)}`);
+  if (!r.ok && r.status !== 404) {
+    const body = await r.text();
+    throw new Error(`GitHub API ${r.status}: ${body.slice(0, 200)}`);
   }
-
-  const reader = resp.body.getReader();
-  const dec    = new TextDecoder();
-  let thinkFull = '', codeFull = '', buf = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const lines = buf.split('\n');
-    buf = lines.pop() || '';
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const raw = line.slice(6).trim();
-      if (raw === '[DONE]') continue;
-      try {
-        const j    = JSON.parse(raw);
-        const rtok = j.choices?.[0]?.delta?.reasoning_content || '';
-        const tok  = j.choices?.[0]?.delta?.content || '';
-        if (rtok) { thinkFull += rtok; onThink(rtok); }
-        if (tok)  { codeFull  += tok;  onCode(tok);   }
-        if (rtok || tok) {
-          totalTok++;
-          document.getElementById('tok-bar').textContent =
-            `⚡ Токенов сгенерировано: ${totalTok.toLocaleString()}`;
-        }
-      } catch(_) {}
-    }
-  }
-  return { think: thinkFull, code: codeFull };
+  return r.status === 404 ? null : r.json();
 }
 
-// ═══ PARSE FILES FROM RESPONSE ════════════════════════════════════════════
-function parseFiles(text) {
-  const files = [];
-  // Match ```lang\n# filename or // filename\n...code...\n```
-  const re = /```(\w*)\n(?:(?:#|\/\/)\s*(\S+\.?\S*)\n)?([^]*?)```/g;
-  let m, idx = 0;
-  while ((m = re.exec(text)) !== null) {
-    const lang    = m[1] || 'text';
-    const name    = m[2] || defaultName(lang, idx);
-    const content = m[3] || '';
-    if (content.trim()) { files.push({ lang, name, content }); idx++; }
-  }
-  return files;
+// Trigger workflow_dispatch
+async function triggerWorkflow(prompt, sessionId, iters, maxTok) {
+  await ghFetch(`/repos/${cfg.repo}/actions/workflows/generate.yml/dispatches`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ref: 'main',
+      inputs: {
+        prompt:     prompt,
+        session_id: sessionId,
+        max_iters:  String(iters),
+        max_tokens: String(maxTok),
+      },
+    }),
+  });
 }
 
-function defaultName(lang, i) {
-  const map = {
-    python:'main.py', py:'main.py', javascript:'index.js', js:'index.js',
-    typescript:'index.ts', ts:'index.ts', html:'index.html', css:'style.css',
-    bash:'run.sh', sh:'run.sh', json:'config.json', sql:'schema.sql',
-    go:'main.go', rust:'main.rs', dockerfile:'Dockerfile',
-  };
-  const base = map[lang.toLowerCase()] || `file.txt`;
-  return i === 0 ? base : base.replace(/(\.\w+)$/, `_${i}$1`);
+// Get the latest run that was triggered after `since` timestamp
+async function getLatestRun(since) {
+  const data = await ghFetch(`/repos/${cfg.repo}/actions/runs?per_page=5&event=workflow_dispatch`);
+  if (!data) return null;
+  const runs = data.workflow_runs || [];
+  return runs.find(r => new Date(r.created_at) >= since) || runs[0] || null;
 }
 
-function makeFolderName(prompt) {
-  const d    = new Date();
-  const date = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-  const slug = prompt.slice(0,35).toLowerCase()
-    .replace(/[^a-zа-яёa-z0-9]+/gi,'-').replace(/(^-|-$)/g,'') || 'project';
-  return `output/${date}_${slug}`;
-}
-function pad(n) { return String(n).padStart(2,'0'); }
-
-// ═══ GITHUB SAVE ══════════════════════════════════════════════════════════
-async function saveToGitHub(folder, files, prompt) {
-  if (!cfg.token || !cfg.repo) return null;
-  const base = `https://api.github.com/repos/${cfg.repo}/contents`;
-  const hdr  = {
-    'Authorization': `Bearer ${cfg.token}`,
-    'Accept': 'application/vnd.github.v3+json',
-    'Content-Type': 'application/json',
-  };
-
-  // prepend README
-  const readme = `# ${folder.split('/').pop()}\n\n**Prompt:** ${prompt}\n\n**Model:** ${cfg.model}\n**Generated:** ${new Date().toISOString()}\n`;
-  const allFiles = [{ name:'README.md', lang:'markdown', content: readme }, ...files];
-
-  const saved = [];
-  for (const f of allFiles) {
-    const path   = `${folder}/${f.name}`;
-    const b64    = btoa(unescape(encodeURIComponent(f.content)));
-    let   sha    = null;
-    try {
-      const ex = await fetch(`${base}/${path}`, { headers: hdr });
-      if (ex.ok) sha = (await ex.json()).sha;
-    } catch(_) {}
-    const body = JSON.stringify({ message:`feat: add ${f.name}`, content: b64, ...(sha?{sha}:{}) });
-    const r    = await fetch(`${base}/${path}`, { method:'PUT', headers: hdr, body });
-    if (r.ok) saved.push(f.name);
-  }
-  return saved;
+// Fetch file from repo
+async function getRepoFile(path) {
+  const data = await ghFetch(`/repos/${cfg.repo}/contents/${path}`);
+  if (!data) return null;
+  try { return atob(data.content.replace(/\n/g, '')); } catch(_) { return null; }
 }
 
-// ═══ UI HELPERS ═══════════════════════════════════════════════════════════
-let thinkWrap = null, thinkInner = null, thinkText = '';
-
-function clearEmpty(id) {
-  const el = document.getElementById(id).querySelector('.empty');
-  if (el) el.remove();
+// List files in folder
+async function listFolder(folder) {
+  const data = await ghFetch(`/repos/${cfg.repo}/contents/${folder}`);
+  if (!data || !Array.isArray(data)) return [];
+  return data.filter(f => f.type === 'file' && !f.name.startsWith('_'));
 }
 
-function addIterBadge(tp, label) {
-  const b = document.createElement('div');
-  b.className = 'iter-badge';
-  b.textContent = label;
-  tp.appendChild(b);
-}
-
-function newThinkBlock(tp) {
-  thinkWrap  = document.createElement('div');
-  thinkWrap.className = 'think-wrap';
-  thinkInner = document.createElement('div');
-  thinkInner.className = 'think-inner';
-  const toggle = document.createElement('span');
-  toggle.className = 'think-toggle';
-  toggle.textContent = '▼ Развернуть';
-  toggle.onclick = () => {
-    thinkInner.classList.toggle('expanded');
-    toggle.textContent = thinkInner.classList.contains('expanded') ? '▲ Свернуть' : '▼ Развернуть';
-  };
-  thinkWrap.append(thinkInner, toggle);
-  tp.appendChild(thinkWrap);
-  thinkText = '';
-}
-
-function appendThink(chunk) {
-  thinkText += chunk;
-  if (thinkInner) {
-    thinkInner.textContent = thinkText;
-    thinkWrap.scrollIntoView({ block:'end', behavior:'smooth' });
+// ─── UI helpers ───────────────────────────────────────────────────────────────
+function setStatus(title, sub, prog, logLine) {
+  document.getElementById('status-title').textContent = title;
+  document.getElementById('status-sub').textContent   = sub || '';
+  document.getElementById('prog').style.width         = (prog || 10) + '%';
+  if (logLine) {
+    const log = document.getElementById('status-log');
+    log.textContent += logLine + '\n';
+    log.scrollTop    = log.scrollHeight;
   }
 }
 
-let streamEl = null, streamText = '';
-
-function newCodeStream(cp) {
-  streamEl   = document.createElement('pre');
-  streamEl.className = 'stream-preview';
-  streamText = '';
-  cp.appendChild(streamEl);
+function showStatusCard(visible) {
+  document.getElementById('status-card').classList.toggle('visible', visible);
 }
-
-function appendCodeStream(chunk) {
-  streamText += chunk;
-  if (streamEl) streamEl.textContent = streamText.slice(-3000);
-}
-
-function addStatus(container, text) {
-  const d = document.createElement('div');
-  d.className = 'status';
-  d.textContent = text;
-  container.appendChild(d);
-}
-
-function renderFiles(files, cp) {
-  if (streamEl) { streamEl.remove(); streamEl = null; }
-  for (const f of files) {
-    const wrap = document.createElement('div');
-    wrap.className = 'file-block';
-    wrap.innerHTML = `
-      <div class="file-hdr">
-        📄 ${esc(f.name)}
-        <button class="copy-btn" onclick="copyFile(this)">📋 Копировать</button>
-      </div>
-      <pre><code class="language-${f.lang || 'text'}">${esc(f.content)}</code></pre>`;
-    cp.appendChild(wrap);
-    try { Prism.highlightAllUnder(wrap); } catch(_) {}
-  }
-}
-
-function showSaveBox(cp, folder, saved) {
-  const box = document.createElement('div');
-  box.className = 'save-box';
-  const url = `https://github.com/${cfg.repo}/tree/main/${folder}`;
-  box.innerHTML = `
-    <div class="save-title">✅ Код сохранён в репозиторий</div>
-    <div class="folder-pill">${esc(folder)}/</div><br>
-    <a href="${esc(url)}" target="_blank">🔗 Открыть в GitHub →</a>
-    <div style="margin-top:8px;font-size:11px;color:#8b949e">Файлы: ${saved.map(esc).join(' · ')}</div>`;
-  cp.appendChild(box);
+function showResultCard(visible) {
+  document.getElementById('result-card').classList.toggle('visible', visible);
 }
 
 function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-function copyFile(btn) {
-  const code = btn.closest('.file-block').querySelector('code');
-  navigator.clipboard.writeText(code.textContent)
-    .then(() => { btn.textContent = '✅ Скопировано'; setTimeout(()=>btn.textContent='📋 Копировать',1500); });
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ═══ MAIN GENERATE ════════════════════════════════════════════════════════
-async function generate() {
-  const prompt = document.getElementById('prompt').value.trim();
-  if (!prompt)     { alert('Введите запрос!'); return; }
-  if (!cfg.token)  { alert('Укажите GitHub Token в ⚙️ Настройках!'); openDrawer(); return; }
+function renderResults(progress) {
+  document.getElementById('result-folder').textContent = progress.folder + '/';
+  document.getElementById('result-sub').textContent    =
+    `${progress.files.length} файл(ов) · ${new Date().toLocaleString('ru')}`;
 
-  controller = new AbortController();
-  totalTok   = 0;
+  const ghUrl  = `https://github.com/${cfg.repo}/tree/main/${progress.folder}`;
+  document.getElementById('result-links').innerHTML =
+    `<a href="${esc(ghUrl)}" target="_blank">📁 Открыть папку в GitHub →</a>`;
 
-  // Reset UI
-  document.getElementById('think-panel').innerHTML = '';
-  document.getElementById('code-panel').innerHTML  = '';
-  document.getElementById('gen-btn').disabled      = true;
-  document.getElementById('stop-btn').style.display= 'block';
-  document.getElementById('tok-bar').textContent   = '';
-  document.getElementById('d-think').className     = 'dot thinking pulse';
-  document.getElementById('l-think').textContent   = 'Рассуждения модели';
-  document.getElementById('l-code').textContent    = 'Генерация...';
+  showResultCard(true);
+}
 
-  const tp = document.getElementById('think-panel');
-  const cp = document.getElementById('code-panel');
-  clearEmpty('think-panel');
-  clearEmpty('code-panel');
+async function loadAndShowFiles(folder, fileList) {
+  const grid = document.getElementById('files-grid');
+  grid.innerHTML = '<div style="color:var(--text2);font-size:12px">Загружаю файлы...</div>';
 
-  const folder    = makeFolderName(prompt);
-  let   lastFiles = [];
+  const renders = [];
+  for (const fi of fileList.slice(0, 10)) {
+    const content = await getRepoFile(`${folder}/${fi.name}`);
+    if (!content) continue;
+    const ext  = fi.name.split('.').pop();
+    const lang = { py:'python', js:'javascript', ts:'typescript', sh:'bash',
+                   json:'json', html:'html', css:'css', md:'markdown' }[ext] || 'text';
+    renders.push({ name: fi.name, lang, content });
+  }
 
-  const SYSTEM = `You are an elite software engineer. Given a task:
-1. Write COMPLETE, production-ready, working code — no placeholders, no "TODO"
-2. Mark each file with its name in a comment on the FIRST LINE of the code block:
-   \`\`\`python
-   # main.py
-   ...code...
-   \`\`\`
-3. Include ALL required files: main code, requirements.txt or package.json, README.md if needed
-4. Code must run immediately without any modifications
-5. After writing, mentally run through the code to verify it works`;
-
-  const messages = [{ role:'system', content: SYSTEM }, { role:'user', content: prompt }];
-
-  try {
-    for (let iter = 0; iter < cfg.iters; iter++) {
-      addIterBadge(tp, iter===0 ? '🚀 Генерация кода' : `🔄 Итерация ${iter+1} — Проверка и улучшение`);
-      newThinkBlock(tp);
-      newCodeStream(cp);
-
-      const { code: codeText } = await callAI(
-        messages,
-        (rtok) => appendThink(rtok),
-        (tok)  => appendCodeStream(tok),
-      );
-
-      const files = parseFiles(codeText);
-      if (files.length) lastFiles = files;
-
-      renderFiles(files, cp);
-      addStatus(tp, iter===0 ? '✅ Первая генерация завершена' : `✅ Итерация ${iter+1} завершена`);
-
-      if (iter < cfg.iters - 1) {
-        messages.push({ role:'assistant', content: codeText });
-        messages.push({ role:'user', content:
-          `Review your code critically:
-1. Find any bugs, missing imports, typos, logic errors
-2. Check all edge cases are handled
-3. Verify the code is complete and runnable
-4. If you find ANY issues → rewrite the COMPLETE corrected version
-5. If everything is correct → write exactly "CODE_IS_READY" on the first line
-
-Be honest and thorough.`
-        });
-        if (codeText.includes('CODE_IS_READY')) {
-          addStatus(tp, '🎯 Модель подтвердила: код готов');
-          break;
-        }
-      }
-    }
-
-    // Save
-    document.getElementById('d-think').className = 'dot on';
-    document.getElementById('l-code').textContent = '💾 Сохранение в GitHub...';
-
-    if (lastFiles.length && cfg.token && cfg.repo) {
-      const saved = await saveToGitHub(folder, lastFiles, prompt);
-      if (saved && saved.length) showSaveBox(cp, folder, saved);
-    } else if (!cfg.repo) {
-      addStatus(cp, '⚠️ Репозиторий не задан — укажите в настройках для автосохранения');
-    }
-
-    document.getElementById('l-code').textContent =
-      `✅ Готово · ${lastFiles.length} файл(ов) · папка: ${folder.split('/').pop()}`;
-
-  } catch(e) {
-    if (e.name === 'AbortError') {
-      addStatus(tp, '⬛ Остановлено');
-    } else {
-      addStatus(tp, `❌ Ошибка: ${e.message}`);
-      console.error(e);
-    }
-    document.getElementById('d-think').className = 'dot';
-  } finally {
-    document.getElementById('gen-btn').disabled      = false;
-    document.getElementById('stop-btn').style.display= 'none';
+  grid.innerHTML = '';
+  for (const f of renders) {
+    const block = document.createElement('div');
+    block.className = 'file-block';
+    block.innerHTML = `
+      <div class="file-hdr">
+        📄 ${esc(f.name)}
+        <button class="copy-btn" onclick="copyBlock(this)">📋 Копировать</button>
+      </div>
+      <pre><code class="language-${f.lang}">${esc(f.content)}</code></pre>`;
+    grid.appendChild(block);
+    try { Prism.highlightAllUnder(block); } catch(_) {}
   }
 }
 
-function stopGen() { controller?.abort(); }
+function copyBlock(btn) {
+  const code = btn.closest('.file-block').querySelector('code');
+  navigator.clipboard.writeText(code.textContent)
+    .then(() => { btn.textContent = '✅ OK'; setTimeout(() => btn.textContent = '📋 Копировать', 1500); });
+}
 
-// init
+// ─── History ──────────────────────────────────────────────────────────────────
+function addToHistory(prompt, folder, runUrl) {
+  const hist = JSON.parse(localStorage.getItem('vc2-history') || '[]');
+  hist.unshift({ prompt, folder, runUrl, date: new Date().toISOString() });
+  localStorage.setItem('vc2-history', JSON.stringify(hist.slice(0, 20)));
+  loadHistory();
+}
+
+function loadHistory() {
+  const hist = JSON.parse(localStorage.getItem('vc2-history') || '[]');
+  const el   = document.getElementById('history-list');
+  if (!hist.length) { el.innerHTML = '<div class="empty-history">Генераций ещё не было</div>'; return; }
+  el.innerHTML = hist.map(h => `
+    <div class="hist-item" onclick="openFolder('${esc(h.folder)}')">
+      <div class="hist-prompt">${esc(h.prompt.slice(0, 80))}${h.prompt.length > 80 ? '…' : ''}</div>
+      <div class="hist-meta">
+        📁 ${esc(h.folder)} ·
+        ${new Date(h.date).toLocaleString('ru')} ·
+        <a href="${esc(h.runUrl || '#')}" target="_blank" onclick="event.stopPropagation()">Лог Actions</a>
+      </div>
+    </div>`).join('');
+}
+
+async function openFolder(folder) {
+  const progress = JSON.parse(await getRepoFile(`${folder}/_progress.json`) || 'null');
+  if (!progress) { window.open(`https://github.com/${cfg.repo}/tree/main/${folder}`, '_blank'); return; }
+  renderResults(progress);
+  const files = await listFolder(folder);
+  if (files.length) await loadAndShowFiles(folder, files);
+  document.getElementById('result-card').scrollIntoView({ behavior: 'smooth' });
+}
+
+// ─── Main generate flow ────────────────────────────────────────────────────────
+async function generate() {
+  const prompt = document.getElementById('prompt').value.trim();
+  if (!prompt)    { alert('Введите запрос!'); return; }
+  if (!cfg.token) { alert('Укажите GitHub Token в ⚙️ Настройках!'); openDrawer(); return; }
+
+  const iters   = +document.getElementById('q-iters').value  || cfg.iters;
+  const maxTok  = +document.getElementById('q-maxtok').value || cfg.maxtok;
+  const session = 's' + Date.now();
+  const since   = new Date();
+
+  document.getElementById('gen-btn').disabled = true;
+  document.getElementById('status-log').textContent = '';
+  showStatusCard(true);
+  showResultCard(false);
+  document.getElementById('result-card').innerHTML = '';
+  // re-init result card
+  document.getElementById('result-card').innerHTML = `
+    <div class="result-top"><div class="result-icon">✅</div>
+      <div><div class="result-title">Код сгенерирован!</div>
+      <div class="result-sub" id="result-sub"></div></div></div>
+    <div>Папка: <span class="folder-pill" id="result-folder"></span></div>
+    <div class="result-links" id="result-links"></div>
+    <div class="files-grid" id="files-grid"></div>`;
+
+  setStatus('🚀 Запуск workflow...', 'Отправляем задачу в GitHub Actions', 5);
+
+  try {
+    await triggerWorkflow(prompt, session, iters, maxTok);
+    setStatus('⏳ Ожидание runner...', 'GitHub Actions runner стартует', 10,
+      `[${new Date().toLocaleTimeString()}] Workflow запущен`);
+  } catch(e) {
+    setStatus('❌ Ошибка запуска', e.message, 0);
+    document.getElementById('gen-btn').disabled = false;
+    return;
+  }
+
+  // Find run
+  let run = null;
+  for (let i = 0; i < 20; i++) {
+    await sleep(3000);
+    run = await getLatestRun(since);
+    if (run) break;
+  }
+  if (!run) {
+    setStatus('❌ Не удалось найти workflow run', 'Проверьте Actions вручную', 0);
+    document.getElementById('gen-btn').disabled = false;
+    return;
+  }
+
+  const runUrl = run.html_url;
+  document.getElementById('actions-link').href        = runUrl;
+  document.getElementById('actions-link').style.display = 'inline-block';
+  setStatus('🤖 Модель работает...', 'Qwen2.5-Coder-7B генерирует код локально', 20,
+    `[${new Date().toLocaleTimeString()}] Run #${run.run_number} → ${runUrl}`);
+
+  // Poll for completion
+  let elapsed = 0;
+  const tick  = 10000;
+  const msgs  = [
+    [60,  '📥 Возможно, первый запуск — загружается модель (~4.7 GB, ~5-10 мин)...'],
+    [180, '🧠 Модель думает и пишет код...'],
+    [360, '🔄 Тестирование и доработка кода...'],
+    [600, '⏳ Большой запрос — модель ещё работает...'],
+  ];
+
+  pollTimer = setInterval(async () => {
+    elapsed += tick / 1000;
+    const pct = Math.min(90, 20 + elapsed / 6);
+    document.getElementById('prog').style.width = pct + '%';
+
+    for (const [sec, msg] of msgs) {
+      if (Math.abs(elapsed - sec) < 12) {
+        setStatus('🤖 Модель работает...', msg, pct, `[${elapsed|0}s] ${msg}`);
+      }
+    }
+
+    // Check run status
+    const r = await ghFetch(`/repos/${cfg.repo}/actions/runs/${run.id}`);
+    if (!r) return;
+
+    if (r.status === 'completed') {
+      clearInterval(pollTimer);
+
+      if (r.conclusion === 'success') {
+        setStatus('✅ Готово! Загружаю результаты...', '', 95,
+          `[${elapsed|0}s] Workflow завершён успешно!`);
+        await sleep(3000); // wait for git push to propagate
+
+        // Find output folder by listing output/
+        const outDir = await ghFetch(`/repos/${cfg.repo}/contents/output`);
+        let folder   = null;
+
+        if (outDir && Array.isArray(outDir)) {
+          const dirs   = outDir.filter(d => d.type === 'dir').sort((a,b) => b.name.localeCompare(a.name));
+          folder       = dirs[0]?.path;
+        }
+
+        if (folder) {
+          const progressRaw = await getRepoFile(`${folder}/_progress.json`);
+          const progress    = progressRaw ? JSON.parse(progressRaw) : { folder, files: [] };
+          renderResults(progress);
+
+          const files = await listFolder(folder);
+          if (files.length) await loadAndShowFiles(folder, files);
+
+          addToHistory(prompt, folder, runUrl);
+          document.getElementById('prog').style.width = '100%';
+        } else {
+          setStatus('⚠️ Код не найден', 'Смотрите лог в GitHub Actions', 100);
+        }
+      } else {
+        setStatus(`❌ Workflow завершён с ошибкой: ${r.conclusion}`,
+          'Смотрите лог в GitHub Actions', 0,
+          `Статус: ${r.conclusion}`);
+      }
+
+      document.getElementById('gen-btn').disabled = false;
+    }
+  }, tick);
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   loadSettings();
   document.getElementById('prompt').addEventListener('keydown', e => {
-    if (e.key==='Enter' && (e.ctrlKey||e.metaKey)) generate();
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generate();
   });
 });
 </script>
