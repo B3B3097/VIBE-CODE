@@ -1,0 +1,95 @@
+name: AI Code Generator (Local Model)
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: 'What to build'
+        required: true
+        type: string
+      session_id:
+        description: 'Session ID'
+        required: true
+        type: string
+      max_iters:
+        description: 'Max iterations (test+fix loops)'
+        default: '3'
+        type: string
+      max_tokens:
+        description: 'Max tokens per model response'
+        default: '32768'
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vibe-code-gen
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore Ollama model cache (~4.7 GB)
+        id: ollama-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-qwen25-coder-7b-q4
+
+      - name: Install Ollama and start server
+        run: |
+          curl -fsSL https://ollama.ai/install.sh | sh
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          sleep 12
+
+      - name: Pull model (or load from cache)
+        run: |
+          CACHED="${{ steps.ollama-cache.outputs.cache-hit }}"
+          if [ "$CACHED" = "true" ]; then
+            echo "Model restored from cache"
+          else
+            echo "First run: downloading Qwen2.5-Coder-7B (~4.7 GB)..."
+          fi
+          ollama pull qwen2.5-coder:7b
+
+      - name: System info
+        run: |
+          echo "=== Runner info ==="
+          echo "CPU : $(nproc) cores"
+          echo "RAM : $(free -h | awk '/^Mem/{print $2}')"
+          echo "Disk: $(df -h . | awk 'NR==2{print $4}') available"
+          ollama list
+
+      - name: Generate code with local model
+        env:
+          PROMPT:     ${{ inputs.prompt }}
+          SESSION_ID: ${{ inputs.session_id }}
+          MAX_ITERS:  ${{ inputs.max_iters }}
+          MAX_TOKENS: ${{ inputs.max_tokens }}
+        run: |
+          mkdir -p output
+          python3 generate.py
+
+      - name: Commit and push generated code
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name  "VIBE-CODE Bot"
+          git config user.email "vibecode-bot@users.noreply.github.com"
+          git add output/
+          if git diff --staged --quiet; then
+            echo "Nothing to commit"
+          else
+            SLUG=$(echo "${{ inputs.prompt }}" | cut -c1-55)
+            git commit -m "feat(vibe): ${SLUG}"
+            git push
+          fi
