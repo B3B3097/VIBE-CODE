@@ -33,7 +33,7 @@ header .spacer{flex:1}
 .drawer h3{font-size:15px;margin-bottom:18px;color:var(--text)}
 .field{margin-bottom:14px}
 .field label{display:block;font-size:11px;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.6px}
-.field input,.field select,.field textarea{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 11px;border-radius:6px;font-size:13px;outline:none;font-family:inherit}
+.field input,.field select{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 11px;border-radius:6px;font-size:13px;outline:none;font-family:inherit}
 .field input:focus,.field select:focus{border-color:var(--accent)}
 .hint{font-size:11px;color:var(--text2);margin-top:4px;line-height:1.4}
 .hint a{color:var(--accent)}
@@ -42,10 +42,16 @@ header .spacer{flex:1}
 
 .main{flex:1;padding:24px;max-width:900px;margin:0 auto;width:100%}
 
-.prompt-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}
+/* ── Mode toggle ── */
+.mode-row{display:flex;gap:8px;margin-bottom:14px}
+.mode-btn{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:9px;border-radius:8px;font-size:13px;cursor:pointer;transition:.15s;text-align:center}
+.mode-btn.active{background:#1c2a3a;border-color:var(--accent);color:var(--accent);font-weight:600}
+
+/* ── Prompt card ── */
+.prompt-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
 .prompt-card h2{font-size:15px;color:var(--text2);margin-bottom:12px;font-weight:500}
 .prompt-wrap{display:flex;gap:10px;align-items:flex-end}
-#prompt{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:12px;border-radius:8px;font-size:14px;line-height:1.55;resize:none;min-height:100px;outline:none;font-family:inherit}
+#prompt{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:12px;border-radius:8px;font-size:14px;line-height:1.55;resize:none;min-height:90px;outline:none;font-family:inherit}
 #prompt:focus{border-color:var(--accent)}
 #prompt::placeholder{color:var(--text2)}
 .right-col{display:flex;flex-direction:column;gap:8px;min-width:140px}
@@ -53,15 +59,30 @@ header .spacer{flex:1}
 #gen-btn:hover:not(:disabled){box-shadow:0 4px 16px rgba(88,166,255,.35)}
 #gen-btn:disabled{opacity:.4;cursor:not-allowed}
 .opts{display:flex;gap:8px}
-.opt{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:6px 4px;border-radius:6px;font-size:12px;text-align:center;cursor:pointer;transition:.15s}
-.opt:hover{border-color:var(--accent)}
+.opt{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:6px 4px;border-radius:6px;font-size:12px;text-align:center}
 .opt label{font-size:10px;display:block;color:var(--text2);margin-bottom:2px}
 .opt input,.opt select{background:none;border:none;color:var(--text);font-size:12px;width:100%;text-align:center;outline:none;cursor:pointer}
+.info-bar{font-size:11px;color:var(--text2);margin-top:8px}
 
-.info-bar{font-size:12px;color:var(--text2);margin-top:8px}
-.info-bar a{color:var(--accent)}
+/* ── File attach zone ── */
+.attach-zone{display:none;border:1.5px dashed var(--border);border-radius:10px;padding:16px;margin-bottom:14px;transition:.2s;cursor:pointer;position:relative;background:var(--bg2)}
+.attach-zone.visible{display:block}
+.attach-zone.drag{border-color:var(--accent);background:#1c2a3a}
+.attach-zone.has-file{border-style:solid;border-color:var(--green);background:#0d1f12}
+.attach-inner{display:flex;align-items:center;gap:12px}
+.attach-icon{font-size:24px;flex-shrink:0}
+.attach-text{flex:1}
+.attach-name{font-size:13px;font-weight:600;color:var(--green);margin-bottom:2px}
+.attach-meta{font-size:11px;color:var(--text2)}
+.attach-clear{background:none;border:none;color:var(--red);font-size:18px;cursor:pointer;padding:4px;flex-shrink:0;line-height:1}
+#file-input{display:none}
+.drop-hint{font-size:12px;color:var(--text2);text-align:center}
+.drop-hint span{color:var(--accent);cursor:pointer;text-decoration:underline}
+.improve-prompt{font-size:12px;color:var(--text2);margin-top:10px;border-top:1px solid var(--border);padding-top:10px}
+.improve-prompt textarea{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:6px;font-size:12px;resize:none;height:54px;outline:none;font-family:inherit;margin-top:5px}
+.improve-prompt textarea:focus{border-color:var(--accent)}
 
-/* Status panel */
+/* ── Status ── */
 .status-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px;display:none}
 .status-card.visible{display:block}
 .status-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
@@ -70,39 +91,44 @@ header .spacer{flex:1}
 .status-sub{font-size:12px;color:var(--text2);margin-top:2px}
 .progress-bar{height:3px;background:var(--border);border-radius:2px;margin-top:10px;overflow:hidden}
 .progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .5s}
-.status-log{font-family:'Fira Code',monospace;font-size:11px;color:#7a9bb5;margin-top:10px;max-height:120px;overflow-y:auto;line-height:1.6;white-space:pre-wrap}
-.actions-link{color:var(--accent);font-size:12px;text-decoration:none;margin-top:6px;display:inline-block}
+.status-log{font-family:'Fira Code',monospace;font-size:11px;color:#7a9bb5;margin-top:10px;max-height:100px;overflow-y:auto;line-height:1.6;white-space:pre-wrap}
+.actions-link{color:var(--accent);font-size:12px;text-decoration:none;margin-top:6px;display:none}
 .actions-link:hover{text-decoration:underline}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* Result panel */
+/* ── Result ── */
 .result-card{background:var(--bg2);border:1px solid var(--green);border-radius:12px;padding:18px;margin-bottom:16px;display:none}
 .result-card.visible{display:block}
 .result-top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
 .result-icon{font-size:20px}
 .result-title{font-size:15px;font-weight:700;color:var(--green)}
 .result-sub{font-size:12px;color:var(--text2);margin-top:2px}
-.folder-pill{font-family:'Fira Code',monospace;background:var(--bg3);border:1px solid var(--border);padding:5px 12px;border-radius:5px;font-size:13px;color:var(--accent);display:inline-block;margin:4px 0}
+.folder-pill{font-family:'Fira Code',monospace;background:var(--bg3);border:1px solid var(--border);padding:4px 10px;border-radius:5px;font-size:12px;color:var(--accent);display:inline-block;margin:4px 0}
 .result-links{margin-top:10px;display:flex;gap:12px;flex-wrap:wrap}
 .result-links a{color:var(--accent);font-size:12px;text-decoration:none}
 .result-links a:hover{text-decoration:underline}
-
 .files-grid{display:grid;gap:12px;margin-top:16px}
 .file-block{background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden}
 .file-hdr{padding:8px 14px;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--bg2)}
 .copy-btn{font-size:11px;background:none;border:none;color:var(--accent);cursor:pointer;padding:0}
-.file-block pre{margin:0!important;border-radius:0!important;max-height:400px;overflow-y:auto}
+.file-block pre{margin:0!important;border-radius:0!important;max-height:500px;overflow-y:auto}
 .file-block pre code{font-size:11.5px!important}
 
-/* History */
+/* ── Diff badge ── */
+.diff-badge{display:inline-flex;gap:6px;align-items:center;font-size:11px;background:var(--bg3);border:1px solid var(--border);padding:3px 9px;border-radius:12px;margin-top:6px}
+.diff-badge .del{color:var(--red)}
+.diff-badge .add{color:var(--green)}
+
+/* ── History ── */
 .history{margin-top:24px}
 .history h3{font-size:13px;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.6px}
-.hist-item{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:8px;cursor:pointer;transition:.15s}
+.hist-item{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:11px 16px;margin-bottom:8px;cursor:pointer;transition:.15s;display:flex;align-items:flex-start;gap:10px}
 .hist-item:hover{border-color:var(--accent)}
-.hist-prompt{font-size:13px;margin-bottom:4px}
+.hist-mode{font-size:14px;flex-shrink:0;margin-top:1px}
+.hist-body{flex:1;min-width:0}
+.hist-prompt{font-size:13px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hist-meta{font-size:11px;color:var(--text2)}
 .hist-meta a{color:var(--accent)}
-
 .empty-history{color:var(--text2);font-size:13px;text-align:center;padding:32px;opacity:.5}
 </style>
 </head>
@@ -115,50 +141,58 @@ header .spacer{flex:1}
     <label>GitHub Token</label>
     <input type="password" id="s-tok" placeholder="github_pat_..." />
     <div class="hint">
-      Нужен для запуска Actions и чтения результатов.<br>
       Разрешения: <code>repo</code> (все)<br>
-      <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank">→ Создать токен</a>
-      <br>Токен хранится только в вашем браузере (localStorage)
+      <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank">→ Создать токен</a><br>
+      Хранится только в браузере (localStorage)
     </div>
   </div>
   <div class="field">
     <label>Репозиторий (owner/repo)</label>
     <input type="text" id="s-repo" placeholder="B3B3097/VIBE-CODE" />
-    <div class="hint">Репозиторий с generate.py и workflow</div>
   </div>
   <div class="field">
-    <label>Итерации (тест + фикс)</label>
+    <label>Итерации по умолчанию</label>
     <input type="number" id="s-iters" value="3" min="1" max="10" />
-    <div class="hint">Сколько раз модель проверяет и исправляет код</div>
   </div>
   <div class="field">
-    <label>Макс. токенов на ответ</label>
-    <input type="number" id="s-maxtok" value="32768" min="4096" max="131072" />
-    <div class="hint">Больше токенов = длиннее код, но дольше генерация</div>
+    <label>Макс. токенов</label>
+    <select id="s-maxtok">
+      <option value="8192">8K</option>
+      <option value="16384">16K</option>
+      <option value="32768" selected>32K</option>
+      <option value="65536">64K</option>
+    </select>
   </div>
   <button class="save-btn" onclick="saveSettings()">💾 Сохранить</button>
 </div>
 
 <header>
   <div class="logo">VIBE<span>CODE</span></div>
-  <div class="badge">🤖 Local AI · Qwen2.5-Coder-7B</div>
+  <div class="badge">🤖 Qwen2.5-Coder-7B · Local</div>
   <div class="spacer"></div>
   <button class="hbtn" onclick="openDrawer()">⚙️ Настройки</button>
 </header>
 
 <div class="main">
 
-  <!-- Prompt -->
-  <div class="prompt-card">
-    <h2>💬 Что нужно сделать?</h2>
-    <div class="prompt-wrap">
-      <textarea id="prompt"
-        placeholder="Опишите задачу... Например:
+  <!-- Mode toggle -->
+  <div class="mode-row">
+    <button class="mode-btn active" id="btn-generate" onclick="setMode('generate')">
+      ✨ Генерировать код
+    </button>
+    <button class="mode-btn" id="btn-improve" onclick="setMode('improve')">
+      🔧 Улучшить файл
+    </button>
+  </div>
 
-Telegram бот на Python + aiogram 3.
-Команды: /add задачу, /list, /done N, /delete N.
-Хранение в SQLite. Напоминания через APScheduler каждые 2 часа.
-Красивые кнопки InlineKeyboard."></textarea>
+  <!-- Prompt card -->
+  <div class="prompt-card">
+    <h2 id="card-title">💬 Что нужно сделать?</h2>
+    <div class="prompt-wrap">
+      <textarea id="prompt" placeholder="Опишите задачу... Например:
+Telegram бот на aiogram 3 с SQLite.
+Команды: /add задачу, /list, /done N.
+Кнопки InlineKeyboard, напоминания через APScheduler."></textarea>
       <div class="right-col">
         <button id="gen-btn" onclick="generate()">⚡ Запустить</button>
         <div class="opts">
@@ -178,55 +212,81 @@ Telegram бот на Python + aiogram 3.
         </div>
       </div>
     </div>
-    <div class="info-bar" id="info-bar">
-      Ctrl+Enter — запустить · Модель: Qwen2.5-Coder-7B (локальная, ~4.7 GB кэш)
+    <div class="info-bar">Ctrl+Enter — запустить · Модель: Qwen2.5-Coder-7B (~4.7 GB кэш)</div>
+  </div>
+
+  <!-- File attach zone (hidden in generate mode) -->
+  <div class="attach-zone" id="attach-zone"
+       ondragover="event.preventDefault();this.classList.add('drag')"
+       ondragleave="this.classList.remove('drag')"
+       ondrop="onDrop(event)">
+    <div id="attach-empty">
+      <div class="drop-hint">
+        📎 Перетащите файл сюда или <span onclick="document.getElementById('file-input').click()">выберите</span>
+      </div>
+      <div class="drop-hint" style="margin-top:5px;font-size:10px">
+        Поддерживаются: .py .js .ts .html .css .sh .sql .json .go .rs .txt и другие текстовые файлы (до 200 КБ)
+      </div>
     </div>
+    <div id="attach-filled" style="display:none">
+      <div class="attach-inner">
+        <div class="attach-icon" id="attach-icon">📄</div>
+        <div class="attach-text">
+          <div class="attach-name" id="attach-name">—</div>
+          <div class="attach-meta" id="attach-meta">—</div>
+        </div>
+        <button class="attach-clear" onclick="clearFile()" title="Убрать файл">✕</button>
+      </div>
+      <div class="improve-prompt">
+        <label style="font-size:11px;color:var(--text2)">Что улучшить / изменить (опционально):</label>
+        <textarea id="improve-hint"
+          placeholder="Например: добавь обработку ошибок, оптимизируй алгоритм, добавь логирование..."></textarea>
+      </div>
+    </div>
+    <input type="file" id="file-input" onchange="onFileSelected(this)">
   </div>
 
   <!-- Status -->
   <div class="status-card" id="status-card">
     <div class="status-top">
-      <div class="spin" id="spin"></div>
+      <div class="spin"></div>
       <div>
         <div class="status-title" id="status-title">Подготовка...</div>
-        <div class="status-sub" id="status-sub"></div>
+        <div class="status-sub"  id="status-sub"></div>
       </div>
     </div>
     <div class="progress-bar"><div class="progress-fill" id="prog" style="width:5%"></div></div>
     <div class="status-log" id="status-log"></div>
-    <a class="actions-link" id="actions-link" target="_blank" style="display:none">
-      📋 Смотреть лог в GitHub Actions →
-    </a>
+    <a class="actions-link" id="actions-link" target="_blank">📋 Лог в GitHub Actions →</a>
   </div>
 
   <!-- Result -->
   <div class="result-card" id="result-card">
     <div class="result-top">
-      <div class="result-icon">✅</div>
+      <div class="result-icon" id="result-icon">✅</div>
       <div>
-        <div class="result-title">Код сгенерирован!</div>
-        <div class="result-sub" id="result-sub"></div>
+        <div class="result-title" id="result-title">Готово!</div>
+        <div class="result-sub"   id="result-sub"></div>
       </div>
     </div>
-    <div>
-      Папка: <span class="folder-pill" id="result-folder"></span>
-    </div>
+    <div>Папка: <span class="folder-pill" id="result-folder"></span></div>
     <div class="result-links" id="result-links"></div>
-    <div class="files-grid" id="files-grid"></div>
+    <div class="files-grid"   id="files-grid"></div>
   </div>
 
   <!-- History -->
   <div class="history">
-    <h3>История генераций</h3>
+    <h3>История</h3>
     <div id="history-list"><div class="empty-history">Генераций ещё не было</div></div>
   </div>
 
 </div>
 
 <script>
-// ─── State ────────────────────────────────────────────────────────────────────
-let cfg = {}, pollTimer = null;
+// ── State ──────────────────────────────────────────────────────────────────────
+let cfg = {}, currentMode = 'generate', attachedFile = null;
 
+// ── Settings ────────────────────────────────────────────────────────────────────
 function loadSettings() {
   try { cfg = JSON.parse(localStorage.getItem('vc2-cfg') || '{}'); } catch(_) { cfg = {}; }
   cfg.token  = cfg.token  || '';
@@ -240,7 +300,6 @@ function loadSettings() {
   document.getElementById('q-iters').value  = cfg.iters;
   loadHistory();
 }
-
 function saveSettings() {
   cfg.token  = document.getElementById('s-tok').value.trim();
   cfg.repo   = document.getElementById('s-repo').value.trim();
@@ -249,11 +308,83 @@ function saveSettings() {
   localStorage.setItem('vc2-cfg', JSON.stringify(cfg));
   closeDrawer();
 }
-
-function openDrawer()  { document.getElementById('drawer').classList.add('open'); document.getElementById('overlay').classList.add('open'); }
+function openDrawer()  { document.getElementById('drawer').classList.add('open');  document.getElementById('overlay').classList.add('open'); }
 function closeDrawer() { document.getElementById('drawer').classList.remove('open'); document.getElementById('overlay').classList.remove('open'); }
 
-// ─── GitHub API helpers ───────────────────────────────────────────────────────
+// ── Mode ────────────────────────────────────────────────────────────────────────
+function setMode(mode) {
+  currentMode = mode;
+  document.getElementById('btn-generate').classList.toggle('active', mode === 'generate');
+  document.getElementById('btn-improve').classList.toggle('active',  mode === 'improve');
+  const zone = document.getElementById('attach-zone');
+  zone.classList.toggle('visible', mode === 'improve');
+
+  const title = document.getElementById('card-title');
+  const textarea = document.getElementById('prompt');
+  if (mode === 'improve') {
+    title.textContent = '💬 Что нужно изменить? (опционально)';
+    textarea.placeholder = 'Необязательно — если пусто, модель сама улучшит всё что найдёт.\nПример: добавь обработку ошибок и логирование';
+    textarea.style.minHeight = '60px';
+  } else {
+    title.textContent = '💬 Что нужно сделать?';
+    textarea.placeholder = 'Опишите задачу... Например:\nTelegram бот на aiogram 3 с SQLite.\nКоманды: /add, /list, /done N.\nКнопки InlineKeyboard, напоминания.';
+    textarea.style.minHeight = '90px';
+    clearFile();
+  }
+}
+
+// ── File handling ───────────────────────────────────────────────────────────────
+const LANG_ICONS = {py:'🐍',js:'📜',ts:'📘',html:'🌐',css:'🎨',sh:'⚙️',bash:'⚙️',
+                    json:'📋',sql:'🗄️',go:'🔵',rs:'🦀',txt:'📄',md:'📝'};
+
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById('attach-zone').classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file) readFile(file);
+}
+function onFileSelected(input) {
+  const file = input.files[0];
+  if (file) readFile(file);
+  input.value = '';
+}
+
+function readFile(file) {
+  const MAX = 200 * 1024;
+  if (file.size > MAX) { alert(`Файл слишком большой (${(file.size/1024).toFixed(0)} КБ). Максимум 200 КБ.`); return; }
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    attachedFile = { name: file.name, content: text, size: file.size };
+    showAttached();
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+function showAttached() {
+  if (!attachedFile) return;
+  const ext  = attachedFile.name.split('.').pop().toLowerCase();
+  const icon = LANG_ICONS[ext] || '📄';
+  const kb   = (attachedFile.size / 1024).toFixed(1);
+  const lines= attachedFile.content.split('\n').length;
+  document.getElementById('attach-icon').textContent = icon;
+  document.getElementById('attach-name').textContent = attachedFile.name;
+  document.getElementById('attach-meta').textContent = `${kb} КБ · ${lines} строк`;
+  document.getElementById('attach-empty').style.display  = 'none';
+  document.getElementById('attach-filled').style.display = 'block';
+  document.getElementById('attach-zone').classList.add('has-file');
+}
+
+function clearFile() {
+  attachedFile = null;
+  document.getElementById('attach-empty').style.display  = 'block';
+  document.getElementById('attach-filled').style.display = 'none';
+  document.getElementById('attach-zone').classList.remove('has-file');
+  document.getElementById('improve-hint').value = '';
+}
+
+// ── GitHub API ─────────────────────────────────────────────────────────────────
 async function ghFetch(path, opts = {}) {
   const r = await fetch(`https://api.github.com${path}`, {
     ...opts,
@@ -264,111 +395,100 @@ async function ghFetch(path, opts = {}) {
       ...(opts.headers || {}),
     },
   });
-  // 204 No Content = success (workflow_dispatch returns this)
-  if (r.status === 204) return {};
+  if (r.status === 204) return {};       // workflow_dispatch returns No Content
   if (r.status === 404) return null;
   const text = await r.text();
   if (!text) return {};
   let data;
   try { data = JSON.parse(text); } catch(_) { data = { _raw: text }; }
-  if (!r.ok) throw new Error(`GitHub API ${r.status}: ${(data.message || text).slice(0, 300)}`);
+  if (!r.ok) throw new Error(`GitHub ${r.status}: ${(data.message || text).slice(0, 300)}`);
   return data;
 }
 
-// Trigger workflow_dispatch
-async function triggerWorkflow(prompt, sessionId, iters, maxTok) {
+async function triggerWorkflow(prompt, sessionId, iters, maxTok, fileName, fileContentB64) {
   await ghFetch(`/repos/${cfg.repo}/actions/workflows/generate.yml/dispatches`, {
     method: 'POST',
     body: JSON.stringify({
       ref: 'main',
       inputs: {
-        prompt:     prompt,
-        session_id: sessionId,
-        max_iters:  String(iters),
-        max_tokens: String(maxTok),
+        prompt:       prompt,
+        session_id:   sessionId,
+        max_iters:    String(iters),
+        max_tokens:   String(maxTok),
+        file_name:    fileName    || '',
+        file_content: fileContentB64 || '',
       },
     }),
   });
 }
 
-// Get the latest run that was triggered after `since` timestamp
 async function getLatestRun(since) {
-  const data = await ghFetch(`/repos/${cfg.repo}/actions/runs?per_page=5&event=workflow_dispatch`);
-  if (!data) return null;
-  const runs = data.workflow_runs || [];
+  const d = await ghFetch(`/repos/${cfg.repo}/actions/runs?per_page=5&event=workflow_dispatch`);
+  if (!d) return null;
+  const runs = d.workflow_runs || [];
   return runs.find(r => new Date(r.created_at) >= since) || runs[0] || null;
 }
 
-// Fetch file from repo
 async function getRepoFile(path) {
-  const data = await ghFetch(`/repos/${cfg.repo}/contents/${path}`);
-  if (!data) return null;
-  try { return atob(data.content.replace(/\n/g, '')); } catch(_) { return null; }
+  const d = await ghFetch(`/repos/${cfg.repo}/contents/${path}`);
+  if (!d) return null;
+  try { return atob(d.content.replace(/\n/g, '')); } catch(_) { return null; }
 }
 
-// List files in folder
 async function listFolder(folder) {
-  const data = await ghFetch(`/repos/${cfg.repo}/contents/${folder}`);
-  if (!data || !Array.isArray(data)) return [];
-  return data.filter(f => f.type === 'file' && !f.name.startsWith('_'));
+  const d = await ghFetch(`/repos/${cfg.repo}/contents/${folder}`);
+  if (!d || !Array.isArray(d)) return [];
+  return d.filter(f => f.type === 'file' && !f.name.startsWith('_'));
 }
 
-// ─── UI helpers ───────────────────────────────────────────────────────────────
-function setStatus(title, sub, prog, logLine) {
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function setStatus(title, sub, pct, log) {
   document.getElementById('status-title').textContent = title;
   document.getElementById('status-sub').textContent   = sub || '';
-  document.getElementById('prog').style.width         = (prog || 10) + '%';
-  if (logLine) {
-    const log = document.getElementById('status-log');
-    log.textContent += logLine + '\n';
-    log.scrollTop    = log.scrollHeight;
+  document.getElementById('prog').style.width = (pct || 5) + '%';
+  if (log) {
+    const el = document.getElementById('status-log');
+    el.textContent += log + '\n';
+    el.scrollTop    = el.scrollHeight;
   }
 }
-
-function showStatusCard(visible) {
-  document.getElementById('status-card').classList.toggle('visible', visible);
+function showCard(id, show) {
+  document.getElementById(id).classList.toggle('visible', show);
 }
-function showResultCard(visible) {
-  document.getElementById('result-card').classList.toggle('visible', visible);
-}
-
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-function renderResults(progress) {
-  document.getElementById('result-folder').textContent = progress.folder + '/';
+async function renderResult(progress) {
+  document.getElementById('result-icon').textContent   = progress.mode === 'improve' ? '🔧' : '✅';
+  document.getElementById('result-title').textContent  = progress.mode === 'improve' ? 'Файл улучшен!' : 'Код сгенерирован!';
   document.getElementById('result-sub').textContent    =
     `${progress.files.length} файл(ов) · ${new Date().toLocaleString('ru')}`;
+  document.getElementById('result-folder').textContent = progress.folder + '/';
 
-  const ghUrl  = `https://github.com/${cfg.repo}/tree/main/${progress.folder}`;
-  document.getElementById('result-links').innerHTML =
-    `<a href="${esc(ghUrl)}" target="_blank">📁 Открыть папку в GitHub →</a>`;
-
-  showResultCard(true);
+  const ghUrl = `https://github.com/${cfg.repo}/tree/main/${progress.folder}`;
+  document.getElementById('result-links').innerHTML = `<a href="${esc(ghUrl)}" target="_blank">📁 Открыть в GitHub →</a>`;
+  showCard('result-card', true);
 }
 
-async function loadAndShowFiles(folder, fileList) {
+async function loadFiles(folder, fileList) {
   const grid = document.getElementById('files-grid');
-  grid.innerHTML = '<div style="color:var(--text2);font-size:12px">Загружаю файлы...</div>';
-
-  const renders = [];
-  for (const fi of fileList.slice(0, 10)) {
-    const content = await getRepoFile(`${folder}/${fi.name}`);
-    if (!content) continue;
+  grid.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:8px">Загружаю файлы...</div>';
+  const EXT_LANG = {py:'python',js:'javascript',ts:'typescript',sh:'bash',html:'html',css:'css',json:'json',md:'markdown'};
+  const renders  = [];
+  for (const fi of fileList.slice(0, 8)) {
+    const raw = await getRepoFile(`${folder}/${fi.name}`);
+    if (raw == null) continue;
     const ext  = fi.name.split('.').pop();
-    const lang = { py:'python', js:'javascript', ts:'typescript', sh:'bash',
-                   json:'json', html:'html', css:'css', md:'markdown' }[ext] || 'text';
-    renders.push({ name: fi.name, lang, content });
+    renders.push({ name: fi.name, lang: EXT_LANG[ext] || 'text', content: raw });
   }
-
   grid.innerHTML = '';
   for (const f of renders) {
     const block = document.createElement('div');
     block.className = 'file-block';
     block.innerHTML = `
       <div class="file-hdr">
-        📄 ${esc(f.name)}
+        📄 ${esc(f.name)} <span style="color:var(--text2);font-size:10px;margin-left:4px">${f.content.split('\n').length} строк</span>
         <button class="copy-btn" onclick="copyBlock(this)">📋 Копировать</button>
       </div>
       <pre><code class="language-${f.lang}">${esc(f.content)}</code></pre>`;
@@ -380,74 +500,94 @@ async function loadAndShowFiles(folder, fileList) {
 function copyBlock(btn) {
   const code = btn.closest('.file-block').querySelector('code');
   navigator.clipboard.writeText(code.textContent)
-    .then(() => { btn.textContent = '✅ OK'; setTimeout(() => btn.textContent = '📋 Копировать', 1500); });
+    .then(() => { btn.textContent = '✅ Скопировано'; setTimeout(() => btn.textContent = '📋 Копировать', 1500); });
 }
 
-// ─── History ──────────────────────────────────────────────────────────────────
-function addToHistory(prompt, folder, runUrl) {
-  const hist = JSON.parse(localStorage.getItem('vc2-history') || '[]');
-  hist.unshift({ prompt, folder, runUrl, date: new Date().toISOString() });
-  localStorage.setItem('vc2-history', JSON.stringify(hist.slice(0, 20)));
+// ── History ────────────────────────────────────────────────────────────────────
+function addHistory(prompt, folder, runUrl, mode, fileName) {
+  const h = JSON.parse(localStorage.getItem('vc2-history') || '[]');
+  h.unshift({ prompt, folder, runUrl, mode, fileName, date: new Date().toISOString() });
+  localStorage.setItem('vc2-history', JSON.stringify(h.slice(0, 20)));
   loadHistory();
 }
-
 function loadHistory() {
-  const hist = JSON.parse(localStorage.getItem('vc2-history') || '[]');
-  const el   = document.getElementById('history-list');
-  if (!hist.length) { el.innerHTML = '<div class="empty-history">Генераций ещё не было</div>'; return; }
-  el.innerHTML = hist.map(h => `
-    <div class="hist-item" onclick="openFolder('${esc(h.folder)}')">
-      <div class="hist-prompt">${esc(h.prompt.slice(0, 80))}${h.prompt.length > 80 ? '…' : ''}</div>
-      <div class="hist-meta">
-        📁 ${esc(h.folder)} ·
-        ${new Date(h.date).toLocaleString('ru')} ·
-        <a href="${esc(h.runUrl || '#')}" target="_blank" onclick="event.stopPropagation()">Лог Actions</a>
+  const h  = JSON.parse(localStorage.getItem('vc2-history') || '[]');
+  const el = document.getElementById('history-list');
+  if (!h.length) { el.innerHTML = '<div class="empty-history">Генераций ещё не было</div>'; return; }
+  el.innerHTML = h.map(item => `
+    <div class="hist-item" onclick="openHistFolder('${esc(item.folder)}')">
+      <div class="hist-mode">${item.mode === 'improve' ? '🔧' : '✨'}</div>
+      <div class="hist-body">
+        <div class="hist-prompt">${esc((item.mode==='improve' ? '📄 '+item.fileName+' — ' : '') + (item.prompt || '(без описания)'))}</div>
+        <div class="hist-meta">${new Date(item.date).toLocaleString('ru')} · <a href="${esc(item.runUrl||'#')}" target="_blank" onclick="event.stopPropagation()">Actions</a></div>
       </div>
     </div>`).join('');
 }
-
-async function openFolder(folder) {
-  const progress = JSON.parse(await getRepoFile(`${folder}/_progress.json`) || 'null');
-  if (!progress) { window.open(`https://github.com/${cfg.repo}/tree/main/${folder}`, '_blank'); return; }
-  renderResults(progress);
+async function openHistFolder(folder) {
+  const raw = await getRepoFile(`${folder}/_progress.json`);
+  if (!raw) { window.open(`https://github.com/${cfg.repo}/tree/main/${folder}`, '_blank'); return; }
+  const progress = JSON.parse(raw);
+  await renderResult(progress);
   const files = await listFolder(folder);
-  if (files.length) await loadAndShowFiles(folder, files);
+  if (files.length) await loadFiles(folder, files);
   document.getElementById('result-card').scrollIntoView({ behavior: 'smooth' });
 }
 
-// ─── Main generate flow ────────────────────────────────────────────────────────
-async function generate() {
-  const prompt = document.getElementById('prompt').value.trim();
-  if (!prompt)    { alert('Введите запрос!'); return; }
-  if (!cfg.token) { alert('Укажите GitHub Token в ⚙️ Настройках!'); openDrawer(); return; }
+// ── Main ───────────────────────────────────────────────────────────────────────
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+async function generate() {
+  const prompt  = document.getElementById('prompt').value.trim();
   const iters   = +document.getElementById('q-iters').value  || cfg.iters;
   const maxTok  = +document.getElementById('q-maxtok').value || cfg.maxtok;
+  const isImprove = currentMode === 'improve';
+
+  // Validation
+  if (!cfg.token) { alert('Укажите GitHub Token в ⚙️ Настройках!'); openDrawer(); return; }
+  if (!isImprove && !prompt) { alert('Введите описание задачи!'); return; }
+  if (isImprove && !attachedFile) { alert('Прикрепите файл для улучшения!'); return; }
+
+  // Encode file if attached
+  let fileNameArg = '', fileContentB64 = '';
+  if (isImprove && attachedFile) {
+    fileNameArg    = attachedFile.name;
+    // Base64 encode (TextEncoder → Uint8Array → base64)
+    const bytes    = new TextEncoder().encode(attachedFile.content);
+    let binary     = '';
+    bytes.forEach(b => binary += String.fromCharCode(b));
+    fileContentB64 = btoa(binary);
+    // max ~100KB of base64 (~75KB raw) — GitHub inputs have no doc'd limit but we warn
+    if (fileContentB64.length > 120000) {
+      alert('Файл слишком большой для передачи через workflow input (> ~90 КБ). Сократите файл.'); return;
+    }
+  }
+
+  const improveHint = document.getElementById('improve-hint')?.value.trim() || '';
+  const finalPrompt = isImprove
+    ? (improveHint || prompt || 'Проверь и улучши этот файл — исправь баги, улучши качество кода, добавь обработку ошибок.')
+    : prompt;
+
   const session = 's' + Date.now();
   const since   = new Date();
 
-  document.getElementById('gen-btn').disabled = true;
+  // Reset UI
+  document.getElementById('gen-btn').disabled    = true;
   document.getElementById('status-log').textContent = '';
-  showStatusCard(true);
-  showResultCard(false);
-  document.getElementById('result-card').innerHTML = '';
-  // re-init result card
-  document.getElementById('result-card').innerHTML = `
-    <div class="result-top"><div class="result-icon">✅</div>
-      <div><div class="result-title">Код сгенерирован!</div>
-      <div class="result-sub" id="result-sub"></div></div></div>
-    <div>Папка: <span class="folder-pill" id="result-folder"></span></div>
-    <div class="result-links" id="result-links"></div>
-    <div class="files-grid" id="files-grid"></div>`;
+  showCard('status-card', true);
+  showCard('result-card', false);
+  document.getElementById('files-grid').innerHTML = '';
+  document.getElementById('actions-link').style.display = 'none';
 
-  setStatus('🚀 Запуск workflow...', 'Отправляем задачу в GitHub Actions', 5);
+  const modeLabel = isImprove ? `🔧 Улучшение: ${fileNameArg}` : '✨ Генерация';
+  setStatus(`🚀 Запуск workflow...`, modeLabel, 5);
 
   try {
-    await triggerWorkflow(prompt, session, iters, maxTok);
+    await triggerWorkflow(finalPrompt, session, iters, maxTok, fileNameArg, fileContentB64);
     setStatus('⏳ Ожидание runner...', 'GitHub Actions runner стартует', 10,
-      `[${new Date().toLocaleTimeString()}] Workflow запущен`);
+      `[${new Date().toLocaleTimeString()}] Workflow запущен (${isImprove ? 'improve' : 'generate'} mode)`);
   } catch(e) {
-    setStatus('❌ Ошибка запуска', e.message, 0);
+    setStatus('❌ Ошибка запуска', e.message, 0,
+      `ERROR: ${e.message}`);
     document.getElementById('gen-btn').disabled = false;
     return;
   }
@@ -460,90 +600,84 @@ async function generate() {
     if (run) break;
   }
   if (!run) {
-    setStatus('❌ Не удалось найти workflow run', 'Проверьте Actions вручную', 0);
+    setStatus('❌ Не удалось найти run', 'Проверьте Actions вручную', 0);
     document.getElementById('gen-btn').disabled = false;
     return;
   }
 
-  const runUrl = run.html_url;
-  document.getElementById('actions-link').href        = runUrl;
-  document.getElementById('actions-link').style.display = 'inline-block';
-  setStatus('🤖 Модель работает...', 'Qwen2.5-Coder-7B генерирует код локально', 20,
+  const runUrl  = run.html_url;
+  const link    = document.getElementById('actions-link');
+  link.href     = runUrl;
+  link.style.display = 'inline-block';
+  setStatus('🤖 Модель работает...', isImprove ? `Анализирует ${fileNameArg}...` : 'Генерирует код...', 20,
     `[${new Date().toLocaleTimeString()}] Run #${run.run_number} → ${runUrl}`);
 
-  // Poll for completion
+  // Poll
   let elapsed = 0;
-  const tick  = 10000;
+  const TICK  = 10000;
   const msgs  = [
     [60,  '📥 Возможно, первый запуск — загружается модель (~4.7 GB, ~5-10 мин)...'],
-    [180, '🧠 Модель думает и пишет код...'],
-    [360, '🔄 Тестирование и доработка кода...'],
-    [600, '⏳ Большой запрос — модель ещё работает...'],
+    [180, `🧠 Модель ${isImprove ? 'анализирует файл' : 'пишет код'}...`],
+    [360, '🔄 Тестирование и доработка...'],
+    [600, '⏳ Большой запрос — модель работает...'],
   ];
 
-  pollTimer = setInterval(async () => {
-    elapsed += tick / 1000;
+  const poll = setInterval(async () => {
+    elapsed += TICK / 1000;
     const pct = Math.min(90, 20 + elapsed / 6);
     document.getElementById('prog').style.width = pct + '%';
 
-    for (const [sec, msg] of msgs) {
-      if (Math.abs(elapsed - sec) < 12) {
+    for (const [sec, msg] of msgs)
+      if (Math.abs(elapsed - sec) < 12)
         setStatus('🤖 Модель работает...', msg, pct, `[${elapsed|0}s] ${msg}`);
-      }
-    }
 
-    // Check run status
     const r = await ghFetch(`/repos/${cfg.repo}/actions/runs/${run.id}`);
-    if (!r) return;
+    if (!r || r.status !== 'completed') return;
+    clearInterval(poll);
 
-    if (r.status === 'completed') {
-      clearInterval(pollTimer);
+    if (r.conclusion === 'success') {
+      setStatus('✅ Готово! Загружаю...', '', 95,
+        `[${elapsed|0}s] Завершён успешно!`);
+      await sleep(3000);
 
-      if (r.conclusion === 'success') {
-        setStatus('✅ Готово! Загружаю результаты...', '', 95,
-          `[${elapsed|0}s] Workflow завершён успешно!`);
-        await sleep(3000); // wait for git push to propagate
-
-        // Find output folder by listing output/
-        const outDir = await ghFetch(`/repos/${cfg.repo}/contents/output`);
-        let folder   = null;
-
-        if (outDir && Array.isArray(outDir)) {
-          const dirs   = outDir.filter(d => d.type === 'dir').sort((a,b) => b.name.localeCompare(a.name));
-          folder       = dirs[0]?.path;
-        }
-
-        if (folder) {
-          const progressRaw = await getRepoFile(`${folder}/_progress.json`);
-          const progress    = progressRaw ? JSON.parse(progressRaw) : { folder, files: [] };
-          renderResults(progress);
-
-          const files = await listFolder(folder);
-          if (files.length) await loadAndShowFiles(folder, files);
-
-          addToHistory(prompt, folder, runUrl);
-          document.getElementById('prog').style.width = '100%';
-        } else {
-          setStatus('⚠️ Код не найден', 'Смотрите лог в GitHub Actions', 100);
-        }
-      } else {
-        setStatus(`❌ Workflow завершён с ошибкой: ${r.conclusion}`,
-          'Смотрите лог в GitHub Actions', 0,
-          `Статус: ${r.conclusion}`);
+      // Find newest output folder
+      const outDir = await ghFetch(`/repos/${cfg.repo}/contents/output`);
+      let folder   = null;
+      if (outDir && Array.isArray(outDir)) {
+        const dirs = outDir.filter(d => d.type === 'dir').sort((a,b) => b.name.localeCompare(a.name));
+        folder     = dirs[0]?.path;
       }
 
-      document.getElementById('gen-btn').disabled = false;
+      if (folder) {
+        const progressRaw = await getRepoFile(`${folder}/_progress.json`);
+        const progress    = progressRaw ? JSON.parse(progressRaw) : { folder, files: [], mode: currentMode };
+        await renderResult(progress);
+        const files = await listFolder(folder);
+        if (files.length) await loadFiles(folder, files);
+        addHistory(finalPrompt, folder, runUrl, currentMode, fileNameArg);
+        document.getElementById('prog').style.width = '100%';
+        document.getElementById('result-card').scrollIntoView({ behavior: 'smooth' });
+      } else {
+        setStatus('⚠️ Файлы не найдены в output/', 'Смотрите лог Actions', 100);
+      }
+    } else {
+      setStatus(`❌ Ошибка: ${r.conclusion}`, 'Смотрите лог Actions', 0,
+        `Статус: ${r.conclusion}`);
     }
-  }, tick);
+    document.getElementById('gen-btn').disabled = false;
+  }, TICK);
 }
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-// ─── Init ─────────────────────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   loadSettings();
   document.getElementById('prompt').addEventListener('keydown', e => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generate();
+  });
+  // Click on attach zone (not on button/clear) → open file dialog
+  document.getElementById('attach-zone').addEventListener('click', e => {
+    if (e.target.id === 'attach-zone' || e.target.classList.contains('drop-hint'))
+      document.getElementById('file-input').click();
   });
 });
 </script>
