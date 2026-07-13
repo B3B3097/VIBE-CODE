@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VIBE CODE — AI Code Generator</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js" defer></script>
@@ -13,151 +12,135 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-css.min.js" defer></script>
 <style>
-:root {
-  --bg:       #0d1117;
-  --bg2:      #161b22;
-  --bg3:      #21262d;
-  --border:   #30363d;
-  --text:     #e6edf3;
-  --text2:    #8b949e;
-  --accent:   #58a6ff;
-  --green:    #3fb950;
-  --orange:   #d29922;
-  --red:      #f85149;
-  --think:    #1a2436;
-  --think-bd: #264d82;
+:root{
+  --bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--border:#30363d;
+  --text:#e6edf3;--text2:#8b949e;--accent:#58a6ff;
+  --green:#3fb950;--orange:#d29922;--red:#f85149;
+  --think:#0f1e30;--think-bd:#264d82;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
 
-/* ── header ──────────────────────── */
-header{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;gap:16px;flex-shrink:0}
-.logo{font-size:20px;font-weight:700;letter-spacing:2px;color:var(--accent)}
+/* header */
+header{background:var(--bg2);border-bottom:1px solid var(--border);padding:11px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0}
+.logo{font-size:19px;font-weight:700;letter-spacing:3px;color:var(--accent)}
 .logo span{color:var(--text)}
-.tagline{color:var(--text2);font-size:13px}
+.tagline{color:var(--text2);font-size:12px}
 header .spacer{flex:1}
-.settings-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;transition:.15s}
-.settings-btn:hover{border-color:var(--accent);color:var(--accent)}
+.hbtn{background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:5px 13px;border-radius:6px;cursor:pointer;font-size:12px;transition:.15s}
+.hbtn:hover{border-color:var(--accent);color:var(--accent)}
 
-/* ── settings drawer ─────────────── */
-.drawer{position:fixed;top:0;right:-420px;width:420px;height:100%;background:var(--bg2);border-left:1px solid var(--border);z-index:100;padding:24px;transition:right .25s ease;overflow-y:auto}
-.drawer.open{right:0}
-.drawer h3{font-size:16px;margin-bottom:20px;color:var(--text)}
-.field{margin-bottom:16px}
-.field label{display:block;font-size:12px;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
-.field input,.field select{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:14px;outline:none;transition:.15s}
-.field input:focus,.field select:focus{border-color:var(--accent)}
-.field select option{background:var(--bg3)}
-.help{font-size:11px;color:var(--text2);margin-top:4px}
-.help a{color:var(--accent)}
-.save-btn{width:100%;background:var(--accent);border:none;color:#000;padding:10px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px;transition:.15s}
-.save-btn:hover{opacity:.85}
-.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99}
+/* drawer */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99}
 .overlay.open{display:block}
+.drawer{position:fixed;top:0;right:-440px;width:440px;height:100%;background:var(--bg2);border-left:1px solid var(--border);z-index:100;padding:24px 20px;transition:right .25s ease;overflow-y:auto}
+.drawer.open{right:0}
+.drawer h3{font-size:15px;margin-bottom:18px}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:11px;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px}
+.field input,.field select{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 11px;border-radius:6px;font-size:13px;outline:none}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.hint{font-size:11px;color:var(--text2);margin-top:4px}
+.hint a{color:var(--accent)}
+.save-btn{width:100%;background:var(--accent);border:none;color:#000;padding:9px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;margin-top:6px}
+.save-btn:hover{opacity:.85}
 
-/* ── prompt bar ──────────────────── */
-.prompt-bar{padding:16px 20px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+/* prompt */
+.prompt-bar{padding:12px 18px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
 .prompt-wrap{display:flex;gap:10px;align-items:flex-end}
-textarea#prompt{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:12px;border-radius:8px;font-size:14px;line-height:1.5;resize:none;min-height:80px;max-height:200px;outline:none;font-family:inherit;transition:.15s}
-textarea#prompt:focus{border-color:var(--accent)}
-textarea#prompt::placeholder{color:var(--text2)}
-.side-btns{display:flex;flex-direction:column;gap:8px}
-#gen-btn{background:var(--accent);border:none;color:#000;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;transition:.15s}
-#gen-btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgba(88,166,255,.3)}
-#gen-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
-#stop-btn{display:none;background:var(--red);border:none;color:#fff;padding:8px 22px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
-.model-pill{font-size:11px;color:var(--text2);text-align:center}
+#prompt{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:8px;font-size:13px;line-height:1.55;resize:none;min-height:76px;max-height:180px;outline:none;font-family:inherit}
+#prompt:focus{border-color:var(--accent)}
+#prompt::placeholder{color:var(--text2)}
+.btns{display:flex;flex-direction:column;gap:6px;align-items:stretch}
+#gen-btn{background:var(--accent);border:none;color:#000;padding:11px 20px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+#gen-btn:hover:not(:disabled){box-shadow:0 4px 14px rgba(88,166,255,.35)}
+#gen-btn:disabled{opacity:.45;cursor:not-allowed}
+#stop-btn{display:none;background:var(--red);border:none;color:#fff;padding:7px 20px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
+.model-tag{font-size:11px;color:var(--text2);text-align:center}
+.tok-bar{font-size:11px;color:var(--text2);margin-top:6px}
 
-/* ── main panels ─────────────────── */
+/* panels */
 .panels{flex:1;display:flex;overflow:hidden;min-height:0}
 .panel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
 .panel+.panel{border-left:1px solid var(--border)}
-.panel-header{background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 16px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text2);display:flex;align-items:center;gap:8px;flex-shrink:0}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--text2)}
-.dot.thinking{background:var(--orange);animation:pulse 1s infinite}
-.dot.done{background:var(--green)}
+.ph{background:var(--bg2);border-bottom:1px solid var(--border);padding:9px 14px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:var(--text2);display:flex;align-items:center;gap:7px;flex-shrink:0}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--text2);flex-shrink:0}
+.dot.pulse{animation:pulse 1s infinite}
+.dot.on{background:var(--green)}
+.dot.thinking{background:var(--orange)}
 .dot.code{background:var(--accent)}
-.panel-body{flex:1;overflow-y:auto;padding:16px;font-size:13px;line-height:1.6}
-.panel-body::-webkit-scrollbar{width:6px}
-.panel-body::-webkit-scrollbar-track{background:transparent}
-.panel-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.pb{flex:1;overflow-y:auto;padding:14px}
+.pb::-webkit-scrollbar{width:5px}
+.pb::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
-/* ── thinking stream ─────────────── */
-.think-block{background:var(--think);border:1px solid var(--think-bd);border-radius:8px;padding:14px;margin-bottom:12px;font-size:12px;color:#a0b4c8;line-height:1.7;font-family:'Fira Code',monospace;white-space:pre-wrap;word-break:break-word}
-.think-block.collapsed .think-inner{max-height:120px;overflow:hidden}
-.think-toggle{font-size:11px;color:var(--accent);cursor:pointer;margin-top:6px;display:inline-block}
-.think-toggle:hover{text-decoration:underline}
-.iter-badge{display:inline-block;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-size:11px;padding:2px 8px;border-radius:12px;margin-bottom:10px}
-.status-line{color:var(--text2);font-size:12px;font-style:italic;margin:6px 0}
+/* thinking */
+.think-wrap{background:var(--think);border:1px solid var(--think-bd);border-radius:8px;padding:12px;margin-bottom:10px}
+.think-inner{font-size:11.5px;color:#8eacc8;line-height:1.65;font-family:'Fira Code','Cascadia Code',monospace;white-space:pre-wrap;word-break:break-word;max-height:150px;overflow:hidden;transition:max-height .3s}
+.think-inner.expanded{max-height:none}
+.think-toggle{font-size:11px;color:var(--accent);cursor:pointer;margin-top:5px;display:inline-block;user-select:none}
+.iter-badge{display:inline-block;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-size:11px;padding:2px 9px;border-radius:12px;margin-bottom:8px}
+.status{color:var(--text2);font-size:11.5px;font-style:italic;margin:5px 0}
 
-/* ── code output ─────────────────── */
-.files-list{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
-.file-tab{background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-size:12px;padding:4px 10px;border-radius:4px;cursor:pointer;transition:.1s}
-.file-tab:hover,.file-tab.active{border-color:var(--accent);color:var(--accent)}
-.code-block{background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:12px}
-.code-block .filename{background:var(--bg3);padding:8px 14px;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
-.copy-btn{font-size:11px;background:none;border:none;color:var(--accent);cursor:pointer;padding:0}
-.copy-btn:hover{text-decoration:underline}
-.code-block pre{margin:0!important;border-radius:0!important;max-height:400px;overflow-y:auto}
-.code-block pre code{font-size:12px!important}
+/* code */
+.stream-preview{font-family:'Fira Code',monospace;font-size:11px;color:#7a9bb5;white-space:pre-wrap;word-break:break-word;padding:4px;background:var(--bg2);border-radius:6px;border:1px solid var(--border);margin-bottom:10px}
+.file-block{background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:10px}
+.file-hdr{background:var(--bg3);padding:7px 13px;font-size:11.5px;color:var(--text2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.copy-btn{font-size:11px;background:none;border:none;color:var(--accent);cursor:pointer}
+.file-block pre{margin:0!important;border-radius:0!important;max-height:380px;overflow-y:auto}
+.file-block pre code{font-size:11.5px!important}
 
-/* ── save box ────────────────────── */
-.save-box{background:var(--bg2);border:1px solid var(--green);border-radius:8px;padding:16px;margin-top:12px}
-.save-box .save-title{color:var(--green);font-weight:600;font-size:13px;margin-bottom:6px}
-.folder-name{font-family:'Fira Code',monospace;background:var(--bg3);padding:6px 12px;border-radius:4px;font-size:13px;color:var(--accent);display:inline-block;margin:6px 0}
+/* save box */
+.save-box{background:#0d1f0d;border:1px solid #2d7a2d;border-radius:8px;padding:14px;margin-top:10px}
+.save-title{color:var(--green);font-weight:700;font-size:13px;margin-bottom:6px}
+.folder-pill{font-family:'Fira Code',monospace;background:var(--bg3);padding:5px 11px;border-radius:4px;font-size:12px;color:var(--accent);display:inline-block;margin:5px 0}
 .save-box a{color:var(--accent);font-size:12px;text-decoration:none}
 .save-box a:hover{text-decoration:underline}
-.iter-status{font-size:12px;color:var(--orange);margin-top:8px}
 
-/* ── empty state ─────────────────── */
-.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text2);gap:10px;opacity:.6}
-.empty svg{width:48px;height:48px;opacity:.4}
-.empty p{font-size:13px}
+/* empty */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text2);gap:8px;opacity:.5}
+.empty svg{width:44px;height:44px}
 
-/* ── tokens counter ──────────────── */
-.tokens{font-size:11px;color:var(--text2);margin-top:4px}
-
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 </style>
 </head>
 <body>
 
 <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
 
-<!-- Settings Drawer -->
+<!-- Settings drawer -->
 <div class="drawer" id="drawer">
   <h3>⚙️ Настройки</h3>
   <div class="field">
     <label>GitHub Token</label>
-    <input type="password" id="s-token" placeholder="github_pat_..." />
-    <div class="help">Нужен для AI + сохранения кода. <a href="https://github.com/settings/tokens/new?scopes=repo,models" target="_blank">Создать токен →</a><br>Области: <code>repo</code> + <code>models:read</code></div>
+    <input type="password" id="s-tok" placeholder="github_pat_..."/>
+    <div class="hint">Разрешения: <code>repo</code> + <code>models:read</code><br>
+    <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank">→ Создать токен</a> (хранится только в браузере)</div>
   </div>
   <div class="field">
     <label>Репозиторий (owner/repo)</label>
-    <input type="text" id="s-repo" placeholder="B3B3097/VIBE-CODE" />
-    <div class="help">Куда сохранять сгенерированный код</div>
+    <input type="text" id="s-repo" placeholder="B3B3097/VIBE-CODE"/>
+    <div class="hint">Куда сохранять сгенерированный код</div>
   </div>
   <div class="field">
     <label>AI Модель</label>
     <select id="s-model">
-      <option value="o3-mini">o3-mini — рассуждения + код (рекоменд.)</option>
+      <option value="o3-mini">o3-mini — рассуждения + код ⭐</option>
       <option value="o1">o1 — глубокое мышление</option>
-      <option value="gpt-4o">GPT-4o — быстрый, точный</option>
-      <option value="DeepSeek-V3">DeepSeek-V3 — открытая модель</option>
+      <option value="gpt-4o">GPT-4o — быстрый и точный</option>
+      <option value="DeepSeek-V3">DeepSeek-V3 — open source</option>
       <option value="Codestral-2501">Codestral-2501 — специалист по коду</option>
-      <option value="Llama-3.3-70B-Instruct">Llama-3.3-70B — открытая, бесплатно</option>
-      <option value="Phi-4">Phi-4 — компактная Microsoft</option>
+      <option value="Llama-3.3-70B-Instruct">Llama-3.3-70B — бесплатная</option>
     </select>
   </div>
   <div class="field">
-    <label>Макс. токенов</label>
-    <input type="number" id="s-maxtok" value="16384" min="1000" max="100000" />
-    <div class="help">GitHub Models: до ~100 000 токенов за ответ</div>
+    <label>Макс. токенов на ответ</label>
+    <input type="number" id="s-maxtok" value="16384" min="1000" max="100000"/>
+    <div class="hint">GitHub Models поддерживает до ~100 000 токенов</div>
   </div>
   <div class="field">
-    <label>Итерации (тест + доработка)</label>
-    <input type="number" id="s-iters" value="3" min="1" max="10" />
-    <div class="help">После генерации модель проверяет и улучшает код N раз</div>
+    <label>Итерации (авто-проверка кода)</label>
+    <input type="number" id="s-iters" value="2" min="1" max="8"/>
+    <div class="hint">После генерации модель проверяет и дорабатывает код N раз</div>
   </div>
   <button class="save-btn" onclick="saveSettings()">💾 Сохранить</button>
 </div>
@@ -165,100 +148,92 @@ textarea#prompt::placeholder{color:var(--text2)}
 <!-- Header -->
 <header>
   <div class="logo">VIBE<span>CODE</span></div>
-  <div class="tagline">AI Code Generator · GitHub Models · Streaming</div>
+  <div class="tagline">AI Code Generator · GitHub Models · Streaming Reasoning</div>
   <div class="spacer"></div>
-  <button class="settings-btn" onclick="openDrawer()">⚙️ Настройки</button>
+  <button class="hbtn" onclick="openDrawer()">⚙️ Настройки</button>
 </header>
 
-<!-- Prompt Bar -->
+<!-- Prompt bar -->
 <div class="prompt-bar">
   <div class="prompt-wrap">
-    <textarea id="prompt" placeholder="Опишите что нужно сделать... Например: «Telegram бот на Python с aiogram 3 для напоминаний. SQLite БД. /add, /list, /delete команды.»" rows="3"></textarea>
-    <div class="side-btns">
-      <button id="gen-btn" onclick="generate()">⚡ Генерировать</button>
+    <textarea id="prompt"
+      placeholder="Опишите задачу... Пример: «Telegram бот на Python + aiogram 3. SQLite БД. Команды /add задачу, /list, /done. Уведомления в 9:00 каждый день.»"></textarea>
+    <div class="btns">
+      <button id="gen-btn" onclick="generate()">⚡ Сгенерировать</button>
       <button id="stop-btn" onclick="stopGen()">⬛ Стоп</button>
-      <div class="model-pill" id="model-pill">o3-mini</div>
+      <div class="model-tag" id="model-tag">o3-mini</div>
     </div>
   </div>
-  <div class="tokens" id="tok-counter"></div>
+  <div class="tok-bar" id="tok-bar"></div>
 </div>
 
 <!-- Panels -->
 <div class="panels">
-  <!-- Left: Thinking -->
   <div class="panel">
-    <div class="panel-header">
-      <div class="dot" id="think-dot"></div>
-      <span id="think-label">Рассуждения модели</span>
-    </div>
-    <div class="panel-body" id="think-panel">
+    <div class="ph"><div class="dot" id="d-think"></div><span id="l-think">Рассуждения модели</span></div>
+    <div class="pb" id="think-panel">
       <div class="empty">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+        </svg>
         <p>Здесь появится процесс мышления модели</p>
       </div>
     </div>
   </div>
-
-  <!-- Right: Code -->
   <div class="panel">
-    <div class="panel-header">
-      <div class="dot code" id="code-dot"></div>
-      <span id="code-label">Сгенерированный код</span>
-    </div>
-    <div class="panel-body" id="code-panel">
+    <div class="ph"><div class="dot code" id="d-code"></div><span id="l-code">Сгенерированный код</span></div>
+    <div class="pb" id="code-panel">
       <div class="empty">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
-        <p>Сгенерированные файлы появятся здесь</p>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+        </svg>
+        <p>Файлы появятся здесь после генерации</p>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-// ─── State ───────────────────────────────────────────────────────────────────
-let cfg = {};
-let controller = null;
-let totalTokens = 0;
+// ═══ CONFIG ════════════════════════════════════════════════════════════════
+const AI_URL = 'https://models.inference.ai.azure.com/chat/completions';
+let cfg = {}, controller = null, totalTok = 0;
 
-// ─── Settings ────────────────────────────────────────────────────────────────
 function loadSettings() {
-  try { cfg = JSON.parse(localStorage.getItem('vibecode-cfg') || '{}'); } catch(_) { cfg = {}; }
-  cfg.token   = cfg.token   || '';
-  cfg.repo    = cfg.repo    || 'B3B3097/VIBE-CODE';
-  cfg.model   = cfg.model   || 'o3-mini';
-  cfg.maxtok  = cfg.maxtok  || 16384;
-  cfg.iters   = cfg.iters   || 3;
-  document.getElementById('s-token').value  = cfg.token;
-  document.getElementById('s-repo').value   = cfg.repo;
-  document.getElementById('s-model').value  = cfg.model;
-  document.getElementById('s-maxtok').value = cfg.maxtok;
-  document.getElementById('s-iters').value  = cfg.iters;
-  document.getElementById('model-pill').textContent = cfg.model;
+  try { cfg = JSON.parse(localStorage.getItem('vc-cfg') || '{}'); } catch(_) { cfg = {}; }
+  cfg.token  = cfg.token  || '';
+  cfg.repo   = cfg.repo   || 'B3B3097/VIBE-CODE';
+  cfg.model  = cfg.model  || 'o3-mini';
+  cfg.maxtok = cfg.maxtok || 16384;
+  cfg.iters  = cfg.iters  || 2;
+  document.getElementById('s-tok').value   = cfg.token;
+  document.getElementById('s-repo').value  = cfg.repo;
+  document.getElementById('s-model').value = cfg.model;
+  document.getElementById('s-maxtok').value= cfg.maxtok;
+  document.getElementById('s-iters').value = cfg.iters;
+  document.getElementById('model-tag').textContent = cfg.model;
 }
 function saveSettings() {
-  cfg.token  = document.getElementById('s-token').value.trim();
+  cfg.token  = document.getElementById('s-tok').value.trim();
   cfg.repo   = document.getElementById('s-repo').value.trim();
   cfg.model  = document.getElementById('s-model').value;
-  cfg.maxtok = parseInt(document.getElementById('s-maxtok').value);
-  cfg.iters  = parseInt(document.getElementById('s-iters').value);
-  localStorage.setItem('vibecode-cfg', JSON.stringify(cfg));
-  document.getElementById('model-pill').textContent = cfg.model;
+  cfg.maxtok = +document.getElementById('s-maxtok').value;
+  cfg.iters  = +document.getElementById('s-iters').value;
+  localStorage.setItem('vc-cfg', JSON.stringify(cfg));
+  document.getElementById('model-tag').textContent = cfg.model;
   closeDrawer();
 }
 function openDrawer()  { document.getElementById('drawer').classList.add('open'); document.getElementById('overlay').classList.add('open'); }
 function closeDrawer() { document.getElementById('drawer').classList.remove('open'); document.getElementById('overlay').classList.remove('open'); }
 
-// ─── GitHub Models streaming ──────────────────────────────────────────────────
-const AI_URL = 'https://models.inference.ai.azure.com/chat/completions';
-
-async function callAI(messages, onChunk) {
+// ═══ STREAMING AI CALL ════════════════════════════════════════════════════
+// Returns { think: string, code: string }
+async function callAI(messages, onThink, onCode) {
   const body = {
     model: cfg.model,
     messages,
     stream: true,
     max_tokens: cfg.maxtok,
   };
-  // o3-mini / o1 get reasoning_effort
   if (cfg.model === 'o3-mini') body.reasoning_effort = 'high';
 
   const resp = await fetch(AI_URL, {
@@ -267,346 +242,319 @@ async function callAI(messages, onChunk) {
     body: JSON.stringify(body),
     signal: controller.signal,
   });
+
   if (!resp.ok) {
     const err = await resp.text();
-    throw new Error(`API ${resp.status}: ${err}`);
+    throw new Error(`API ${resp.status}: ${err.slice(0,200)}`);
   }
 
   const reader = resp.body.getReader();
   const dec    = new TextDecoder();
-  let full = '';
-  let buf  = '';
+  let thinkFull = '', codeFull = '', buf = '';
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     buf += dec.decode(value, { stream: true });
     const lines = buf.split('\n');
-    buf = lines.pop();
+    buf = lines.pop() || '';
+
     for (const line of lines) {
       if (!line.startsWith('data: ')) continue;
       const raw = line.slice(6).trim();
       if (raw === '[DONE]') continue;
       try {
         const j    = JSON.parse(raw);
-        const tok  = j.choices?.[0]?.delta?.content || '';
         const rtok = j.choices?.[0]?.delta?.reasoning_content || '';
-        if (tok || rtok) {
-          full += (rtok || tok);
-          onChunk(tok, rtok);
-          totalTokens += 1;
-          document.getElementById('tok-counter').textContent = `Токенов сгенерировано: ${totalTokens.toLocaleString()}`;
+        const tok  = j.choices?.[0]?.delta?.content || '';
+        if (rtok) { thinkFull += rtok; onThink(rtok); }
+        if (tok)  { codeFull  += tok;  onCode(tok);   }
+        if (rtok || tok) {
+          totalTok++;
+          document.getElementById('tok-bar').textContent =
+            `⚡ Токенов сгенерировано: ${totalTok.toLocaleString()}`;
         }
       } catch(_) {}
     }
   }
-  return full;
+  return { think: thinkFull, code: codeFull };
 }
 
-// ─── Parse code blocks from response ─────────────────────────────────────────
-function parseCodeBlocks(text) {
+// ═══ PARSE FILES FROM RESPONSE ════════════════════════════════════════════
+function parseFiles(text) {
   const files = [];
-  const re = /```(\w+)?\s*(?:\/\/\s*(.+?)\s*\n|#\s*(.+?)\s*\n)?([^]*?)```/g;
-  let m;
+  // Match ```lang\n# filename or // filename\n...code...\n```
+  const re = /```(\w*)\n(?:(?:#|\/\/)\s*(\S+\.?\S*)\n)?([^]*?)```/g;
+  let m, idx = 0;
   while ((m = re.exec(text)) !== null) {
     const lang    = m[1] || 'text';
-    const name    = m[2] || m[3] || guessFilename(lang, files.length);
-    const content = m[4];
-    files.push({ lang, name, content });
+    const name    = m[2] || defaultName(lang, idx);
+    const content = m[3] || '';
+    if (content.trim()) { files.push({ lang, name, content }); idx++; }
   }
   return files;
 }
 
-function guessFilename(lang, idx) {
-  const map = { python:'main.py', javascript:'index.js', js:'index.js', html:'index.html',
-                 css:'style.css', bash:'run.sh', sh:'run.sh', json:'config.json', sql:'schema.sql',
-                 typescript:'index.ts', ts:'index.ts', go:'main.go', rust:'main.rs' };
-  const base = map[lang.toLowerCase()] || `file_${idx+1}.txt`;
-  return idx === 0 ? base : base.replace(/(\.\w+)$/, `_${idx}$1`);
+function defaultName(lang, i) {
+  const map = {
+    python:'main.py', py:'main.py', javascript:'index.js', js:'index.js',
+    typescript:'index.ts', ts:'index.ts', html:'index.html', css:'style.css',
+    bash:'run.sh', sh:'run.sh', json:'config.json', sql:'schema.sql',
+    go:'main.go', rust:'main.rs', dockerfile:'Dockerfile',
+  };
+  const base = map[lang.toLowerCase()] || `file.txt`;
+  return i === 0 ? base : base.replace(/(\.\w+)$/, `_${i}$1`);
 }
 
-function folderName(prompt) {
-  const d   = new Date();
-  const dt  = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  const slug = prompt.slice(0,40).toLowerCase().replace(/[^a-zа-яё0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'') || 'project';
-  return `output/${dt}_${slug}`;
+function makeFolderName(prompt) {
+  const d    = new Date();
+  const date = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const slug = prompt.slice(0,35).toLowerCase()
+    .replace(/[^a-zа-яёa-z0-9]+/gi,'-').replace(/(^-|-$)/g,'') || 'project';
+  return `output/${date}_${slug}`;
 }
+function pad(n) { return String(n).padStart(2,'0'); }
 
-// ─── GitHub: save files ───────────────────────────────────────────────────────
+// ═══ GITHUB SAVE ══════════════════════════════════════════════════════════
 async function saveToGitHub(folder, files, prompt) {
   if (!cfg.token || !cfg.repo) return null;
   const base = `https://api.github.com/repos/${cfg.repo}/contents`;
-  const hdr  = { 'Authorization': `Bearer ${cfg.token}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.github.v3+json' };
+  const hdr  = {
+    'Authorization': `Bearer ${cfg.token}`,
+    'Accept': 'application/vnd.github.v3+json',
+    'Content-Type': 'application/json',
+  };
+
+  // prepend README
+  const readme = `# ${folder.split('/').pop()}\n\n**Prompt:** ${prompt}\n\n**Model:** ${cfg.model}\n**Generated:** ${new Date().toISOString()}\n`;
+  const allFiles = [{ name:'README.md', lang:'markdown', content: readme }, ...files];
+
   const saved = [];
-
-  // Save README
-  const readme = `# ${folder.split('/').pop()}\n\n**Prompt:** ${prompt}\n\n**Generated:** ${new Date().toISOString()}\n\n**Model:** ${cfg.model}\n`;
-  files.unshift({ name: 'README.md', lang: 'markdown', content: readme });
-
-  for (const f of files) {
-    const path = `${folder}/${f.name}`;
-    const enc  = btoa(unescape(encodeURIComponent(f.content)));
-    let sha    = undefined;
+  for (const f of allFiles) {
+    const path   = `${folder}/${f.name}`;
+    const b64    = btoa(unescape(encodeURIComponent(f.content)));
+    let   sha    = null;
     try {
       const ex = await fetch(`${base}/${path}`, { headers: hdr });
       if (ex.ok) sha = (await ex.json()).sha;
     } catch(_) {}
-    const body = { message: `feat: add ${f.name}`, content: enc, ...(sha ? { sha } : {}) };
-    const r    = await fetch(`${base}/${path}`, { method: 'PUT', headers: hdr, body: JSON.stringify(body) });
+    const body = JSON.stringify({ message:`feat: add ${f.name}`, content: b64, ...(sha?{sha}:{}) });
+    const r    = await fetch(`${base}/${path}`, { method:'PUT', headers: hdr, body });
     if (r.ok) saved.push(f.name);
   }
   return saved;
 }
 
-// ─── UI helpers ───────────────────────────────────────────────────────────────
-function setThinkDot(state) {
-  const d = document.getElementById('think-dot');
-  d.className = 'dot' + (state ? ' ' + state : '');
+// ═══ UI HELPERS ═══════════════════════════════════════════════════════════
+let thinkWrap = null, thinkInner = null, thinkText = '';
+
+function clearEmpty(id) {
+  const el = document.getElementById(id).querySelector('.empty');
+  if (el) el.remove();
 }
 
-let thinkContent = '';
-let thinkEl      = null;
-let thinkInnerEl = null;
+function addIterBadge(tp, label) {
+  const b = document.createElement('div');
+  b.className = 'iter-badge';
+  b.textContent = label;
+  tp.appendChild(b);
+}
 
-function addThinkBlock() {
-  const tp   = document.getElementById('think-panel');
-  const wrap = document.createElement('div');
-  wrap.className = 'think-block collapsed';
-  const inner = document.createElement('div');
-  inner.className = 'think-inner';
+function newThinkBlock(tp) {
+  thinkWrap  = document.createElement('div');
+  thinkWrap.className = 'think-wrap';
+  thinkInner = document.createElement('div');
+  thinkInner.className = 'think-inner';
   const toggle = document.createElement('span');
   toggle.className = 'think-toggle';
   toggle.textContent = '▼ Развернуть';
   toggle.onclick = () => {
-    wrap.classList.toggle('collapsed');
-    toggle.textContent = wrap.classList.contains('collapsed') ? '▼ Развернуть' : '▲ Свернуть';
+    thinkInner.classList.toggle('expanded');
+    toggle.textContent = thinkInner.classList.contains('expanded') ? '▲ Свернуть' : '▼ Развернуть';
   };
-  wrap.append(inner, toggle);
-  // remove empty state
-  const empty = tp.querySelector('.empty');
-  if (empty) empty.remove();
-  tp.appendChild(wrap);
-  thinkEl      = wrap;
-  thinkInnerEl = inner;
-  thinkContent = '';
+  thinkWrap.append(thinkInner, toggle);
+  tp.appendChild(thinkWrap);
+  thinkText = '';
 }
 
 function appendThink(chunk) {
-  thinkContent += chunk;
-  if (thinkInnerEl) thinkInnerEl.textContent = thinkContent;
-  thinkEl.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  thinkText += chunk;
+  if (thinkInner) {
+    thinkInner.textContent = thinkText;
+    thinkWrap.scrollIntoView({ block:'end', behavior:'smooth' });
+  }
 }
 
-function addStatusLine(tp, text) {
-  const d = document.createElement('div');
-  d.className = 'status-line';
-  d.textContent = text;
-  tp.appendChild(d);
-}
+let streamEl = null, streamText = '';
 
-let codeBuffer = '';
-let codeStreamEl = null;
-
-function startCodeStream() {
-  const cp  = document.getElementById('code-panel');
-  const empty = cp.querySelector('.empty');
-  if (empty) empty.remove();
-  codeStreamEl = document.createElement('div');
-  codeStreamEl.style.cssText = 'font-family:monospace;font-size:12px;color:#a0b4c8;white-space:pre-wrap;word-break:break-word;padding:4px';
-  cp.appendChild(codeStreamEl);
-  codeBuffer = '';
+function newCodeStream(cp) {
+  streamEl   = document.createElement('pre');
+  streamEl.className = 'stream-preview';
+  streamText = '';
+  cp.appendChild(streamEl);
 }
 
 function appendCodeStream(chunk) {
-  codeBuffer += chunk;
-  if (codeStreamEl) codeStreamEl.textContent = codeBuffer.slice(-2000); // show last 2000 chars
+  streamText += chunk;
+  if (streamEl) streamEl.textContent = streamText.slice(-3000);
 }
 
-function renderFiles(files, folder) {
-  const cp = document.getElementById('code-panel');
-  if (codeStreamEl) codeStreamEl.remove();
-  codeStreamEl = null;
+function addStatus(container, text) {
+  const d = document.createElement('div');
+  d.className = 'status';
+  d.textContent = text;
+  container.appendChild(d);
+}
 
-  if (!files.length) {
-    const d = document.createElement('div');
-    d.className = 'status-line';
-    d.textContent = 'Код не обнаружен в ответе модели.';
-    cp.appendChild(d);
-    return;
-  }
-
+function renderFiles(files, cp) {
+  if (streamEl) { streamEl.remove(); streamEl = null; }
   for (const f of files) {
     const wrap = document.createElement('div');
-    wrap.className = 'code-block';
-    const lang = f.lang || 'text';
+    wrap.className = 'file-block';
     wrap.innerHTML = `
-      <div class="filename">
-        📄 ${f.name}
-        <button class="copy-btn" onclick="copyCode(this)">Копировать</button>
+      <div class="file-hdr">
+        📄 ${esc(f.name)}
+        <button class="copy-btn" onclick="copyFile(this)">📋 Копировать</button>
       </div>
-      <pre><code class="language-${lang}">${escHtml(f.content)}</code></pre>`;
+      <pre><code class="language-${f.lang || 'text'}">${esc(f.content)}</code></pre>`;
     cp.appendChild(wrap);
-    Prism.highlightAllUnder(wrap);
+    try { Prism.highlightAllUnder(wrap); } catch(_) {}
   }
 }
 
-function showSaveBox(folder, saved) {
-  const cp   = document.getElementById('code-panel');
-  const box  = document.createElement('div');
+function showSaveBox(cp, folder, saved) {
+  const box = document.createElement('div');
   box.className = 'save-box';
-  const repoUrl = `https://github.com/${cfg.repo}/tree/main/${folder}`;
+  const url = `https://github.com/${cfg.repo}/tree/main/${folder}`;
   box.innerHTML = `
     <div class="save-title">✅ Код сохранён в репозиторий</div>
-    <div class="folder-name">${folder}/</div><br>
-    <a href="${repoUrl}" target="_blank">🔗 Открыть в GitHub →</a>
-    <div style="margin-top:8px;font-size:12px;color:#8b949e">Файлы: ${saved.join(', ')}</div>`;
+    <div class="folder-pill">${esc(folder)}/</div><br>
+    <a href="${esc(url)}" target="_blank">🔗 Открыть в GitHub →</a>
+    <div style="margin-top:8px;font-size:11px;color:#8b949e">Файлы: ${saved.map(esc).join(' · ')}</div>`;
   cp.appendChild(box);
 }
 
-function copyCode(btn) {
-  const pre  = btn.closest('.code-block').querySelector('code');
-  navigator.clipboard.writeText(pre.textContent).then(() => {
-    btn.textContent = 'Скопировано!';
-    setTimeout(() => btn.textContent = 'Копировать', 1500);
-  });
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function copyFile(btn) {
+  const code = btn.closest('.file-block').querySelector('code');
+  navigator.clipboard.writeText(code.textContent)
+    .then(() => { btn.textContent = '✅ Скопировано'; setTimeout(()=>btn.textContent='📋 Копировать',1500); });
 }
 
-// ─── Main generate flow ────────────────────────────────────────────────────────
+// ═══ MAIN GENERATE ════════════════════════════════════════════════════════
 async function generate() {
   const prompt = document.getElementById('prompt').value.trim();
-  if (!prompt) { alert('Введите запрос!'); return; }
-  if (!cfg.token) { alert('Укажите GitHub Token в настройках!'); openDrawer(); return; }
+  if (!prompt)     { alert('Введите запрос!'); return; }
+  if (!cfg.token)  { alert('Укажите GitHub Token в ⚙️ Настройках!'); openDrawer(); return; }
 
-  controller  = new AbortController();
-  totalTokens = 0;
+  controller = new AbortController();
+  totalTok   = 0;
 
   // Reset UI
   document.getElementById('think-panel').innerHTML = '';
   document.getElementById('code-panel').innerHTML  = '';
-  document.getElementById('gen-btn').disabled = true;
-  document.getElementById('stop-btn').style.display = 'block';
-  document.getElementById('tok-counter').textContent = '';
-  setThinkDot('thinking');
-  document.getElementById('think-label').textContent = 'Рассуждения модели';
-  document.getElementById('code-label').textContent  = 'Генерация...';
+  document.getElementById('gen-btn').disabled      = true;
+  document.getElementById('stop-btn').style.display= 'block';
+  document.getElementById('tok-bar').textContent   = '';
+  document.getElementById('d-think').className     = 'dot thinking pulse';
+  document.getElementById('l-think').textContent   = 'Рассуждения модели';
+  document.getElementById('l-code').textContent    = 'Генерация...';
 
   const tp = document.getElementById('think-panel');
   const cp = document.getElementById('code-panel');
-  const folder = folderName(prompt);
-  let allFiles  = [];
-  let lastCode  = '';
+  clearEmpty('think-panel');
+  clearEmpty('code-panel');
+
+  const folder    = makeFolderName(prompt);
+  let   lastFiles = [];
+
+  const SYSTEM = `You are an elite software engineer. Given a task:
+1. Write COMPLETE, production-ready, working code — no placeholders, no "TODO"
+2. Mark each file with its name in a comment on the FIRST LINE of the code block:
+   \`\`\`python
+   # main.py
+   ...code...
+   \`\`\`
+3. Include ALL required files: main code, requirements.txt or package.json, README.md if needed
+4. Code must run immediately without any modifications
+5. After writing, mentally run through the code to verify it works`;
+
+  const messages = [{ role:'system', content: SYSTEM }, { role:'user', content: prompt }];
 
   try {
-    const SYSTEM = `You are an expert software engineer. 
-When given a task:
-1. Think through the problem carefully
-2. Write complete, production-ready, working code
-3. Each file MUST start with its filename as a comment: // filename.js or # filename.py
-4. Include ALL necessary files (main code, config, requirements, README)
-5. Code must be ready to run without modification
-
-Format code blocks as:
-\`\`\`python
-# main.py
-...code...
-\`\`\`
-
-After writing code, verify it works correctly and fix any bugs.`;
-
-    let messages = [
-      { role: 'system', content: SYSTEM },
-      { role: 'user',   content: prompt },
-    ];
-
     for (let iter = 0; iter < cfg.iters; iter++) {
-      const badge = document.createElement('div');
-      badge.className = 'iter-badge';
-      badge.textContent = iter === 0 ? '🚀 Итерация 1 — Генерация' : `🔄 Итерация ${iter+1} — Проверка и улучшение`;
-      tp.appendChild(badge);
+      addIterBadge(tp, iter===0 ? '🚀 Генерация кода' : `🔄 Итерация ${iter+1} — Проверка и улучшение`);
+      newThinkBlock(tp);
+      newCodeStream(cp);
 
-      addThinkBlock();
-      startCodeStream();
-      setThinkDot('thinking');
+      const { code: codeText } = await callAI(
+        messages,
+        (rtok) => appendThink(rtok),
+        (tok)  => appendCodeStream(tok),
+      );
 
-      let fullResp = '';
-      let thinking = '';
+      const files = parseFiles(codeText);
+      if (files.length) lastFiles = files;
 
-      fullResp = await callAI(messages, (tok, rtok) => {
-        if (rtok) appendThink(rtok);
-        if (tok)  { fullResp_tok = (fullResp_tok||'') + tok; appendCodeStream(tok); }
-      });
-
-      // fullResp contains the complete response text
-      // Extract code blocks
-      const files = parseCodeBlocks(fullResp);
-      if (files.length) {
-        allFiles = files;
-        lastCode = fullResp;
-      }
-
-      renderFiles(files, folder);
-      addStatusLine(tp, iter === 0 ? '✅ Первая генерация завершена' : `✅ Итерация ${iter+1} завершена`);
+      renderFiles(files, cp);
+      addStatus(tp, iter===0 ? '✅ Первая генерация завершена' : `✅ Итерация ${iter+1} завершена`);
 
       if (iter < cfg.iters - 1) {
-        messages.push({ role: 'assistant', content: fullResp });
-        messages.push({
-          role: 'user',
-          content: `Review the code you just wrote thoroughly:
-1. Check for bugs, edge cases, missing error handling
-2. Verify all imports and dependencies are correct
-3. Ensure the code is complete and will run without modification
-4. If you find ANY issues, rewrite the COMPLETE fixed version
-5. If the code is already perfect, say "CODE IS READY" and stop
+        messages.push({ role:'assistant', content: codeText });
+        messages.push({ role:'user', content:
+          `Review your code critically:
+1. Find any bugs, missing imports, typos, logic errors
+2. Check all edge cases are handled
+3. Verify the code is complete and runnable
+4. If you find ANY issues → rewrite the COMPLETE corrected version
+5. If everything is correct → write exactly "CODE_IS_READY" on the first line
 
-Be critical and fix everything you find.`
+Be honest and thorough.`
         });
-
-        // Check if model says code is ready
-        if (fullResp.toLowerCase().includes('code is ready')) {
-          addStatusLine(tp, '🎯 Модель подтвердила: код готов');
+        if (codeText.includes('CODE_IS_READY')) {
+          addStatus(tp, '🎯 Модель подтвердила: код готов');
           break;
         }
       }
     }
 
-    // Save to GitHub
-    setThinkDot('done');
-    document.getElementById('think-label').textContent = 'Рассуждения завершены';
-    document.getElementById('code-label').textContent  = '💾 Сохранение в репозиторий...';
+    // Save
+    document.getElementById('d-think').className = 'dot on';
+    document.getElementById('l-code').textContent = '💾 Сохранение в GitHub...';
 
-    if (cfg.token && cfg.repo && allFiles.length) {
-      const saved = await saveToGitHub(folder, [...allFiles], prompt);
-      if (saved) showSaveBox(folder, saved);
+    if (lastFiles.length && cfg.token && cfg.repo) {
+      const saved = await saveToGitHub(folder, lastFiles, prompt);
+      if (saved && saved.length) showSaveBox(cp, folder, saved);
+    } else if (!cfg.repo) {
+      addStatus(cp, '⚠️ Репозиторий не задан — укажите в настройках для автосохранения');
     }
 
-    document.getElementById('code-label').textContent = `✅ Готово · ${allFiles.length} файл(ов)`;
+    document.getElementById('l-code').textContent =
+      `✅ Готово · ${lastFiles.length} файл(ов) · папка: ${folder.split('/').pop()}`;
 
   } catch(e) {
     if (e.name === 'AbortError') {
-      addStatusLine(tp, '⬛ Остановлено пользователем');
+      addStatus(tp, '⬛ Остановлено');
     } else {
-      addStatusLine(tp, `❌ Ошибка: ${e.message}`);
+      addStatus(tp, `❌ Ошибка: ${e.message}`);
       console.error(e);
     }
-    setThinkDot('');
+    document.getElementById('d-think').className = 'dot';
   } finally {
-    document.getElementById('gen-btn').disabled = false;
-    document.getElementById('stop-btn').style.display = 'none';
+    document.getElementById('gen-btn').disabled      = false;
+    document.getElementById('stop-btn').style.display= 'none';
   }
 }
 
-function stopGen() {
-  if (controller) controller.abort();
-}
+function stopGen() { controller?.abort(); }
 
-// Allow Ctrl+Enter
+// init
 document.addEventListener('DOMContentLoaded', () => {
   loadSettings();
   document.getElementById('prompt').addEventListener('keydown', e => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generate();
+    if (e.key==='Enter' && (e.ctrlKey||e.metaKey)) generate();
   });
 });
 </script>
