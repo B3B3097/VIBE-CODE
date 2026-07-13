@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       prompt:
-        description: 'What to build'
-        required: true
+        description: 'What to build / how to improve'
+        required: false
+        default: ''
         type: string
       session_id:
         description: 'Session ID'
@@ -18,6 +19,14 @@ on:
       max_tokens:
         description: 'Max tokens per model response'
         default: '32768'
+        type: string
+      file_name:
+        description: 'Attached filename (empty = generate mode)'
+        default: ''
+        type: string
+      file_content:
+        description: 'Attached file content base64-encoded (empty = generate mode)'
+        default: ''
         type: string
 
 permissions:
@@ -49,8 +58,7 @@ jobs:
 
       - name: Pull model (or load from cache)
         run: |
-          CACHED="${{ steps.ollama-cache.outputs.cache-hit }}"
-          if [ "$CACHED" = "true" ]; then
+          if [ "${{ steps.ollama-cache.outputs.cache-hit }}" = "true" ]; then
             echo "Model restored from cache"
           else
             echo "First run: downloading Qwen2.5-Coder-7B (~4.7 GB)..."
@@ -59,25 +67,26 @@ jobs:
 
       - name: System info
         run: |
-          echo "=== Runner info ==="
+          echo "=== Runner ==="
           echo "CPU : $(nproc) cores"
           echo "RAM : $(free -h | awk '/^Mem/{print $2}')"
           echo "Disk: $(df -h . | awk 'NR==2{print $4}') available"
+          echo "Mode: ${{ inputs.file_name != '' && 'IMPROVE' || 'GENERATE' }}"
           ollama list
 
-      - name: Generate code with local model
+      - name: Run VIBE-CODE
         env:
-          PROMPT:     ${{ inputs.prompt }}
-          SESSION_ID: ${{ inputs.session_id }}
-          MAX_ITERS:  ${{ inputs.max_iters }}
-          MAX_TOKENS: ${{ inputs.max_tokens }}
+          PROMPT:       ${{ inputs.prompt }}
+          SESSION_ID:   ${{ inputs.session_id }}
+          MAX_ITERS:    ${{ inputs.max_iters }}
+          MAX_TOKENS:   ${{ inputs.max_tokens }}
+          FILE_NAME:    ${{ inputs.file_name }}
+          FILE_CONTENT: ${{ inputs.file_content }}
         run: |
           mkdir -p output
           python3 generate.py
 
-      - name: Commit and push generated code
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit and push results
         run: |
           git config user.name  "VIBE-CODE Bot"
           git config user.email "vibecode-bot@users.noreply.github.com"
@@ -85,7 +94,8 @@ jobs:
           if git diff --staged --quiet; then
             echo "Nothing to commit"
           else
-            SLUG=$(echo "${{ inputs.prompt }}" | cut -c1-55)
-            git commit -m "feat(vibe): ${SLUG}"
+            MODE="${{ inputs.file_name != '' && 'improve' || 'generate' }}"
+            SLUG=$(echo "${{ inputs.prompt }}${{ inputs.file_name }}" | cut -c1-55)
+            git commit -m "feat(vibe/${MODE}): ${SLUG}"
             git push
           fi
