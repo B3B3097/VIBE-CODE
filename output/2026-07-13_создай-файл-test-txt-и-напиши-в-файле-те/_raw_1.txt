@@ -1,0 +1,16 @@
+```python
+# main.py
+
+def write_test_file():
+    try:
+        with open('test.txt', 'w') as file:
+            file.write('Тест успешный')
+        print("Файл успешно создан и заполнен.")
+    except Exception as e:
+        print(f"Произошла ошибка: {e}")
+
+if __name__ == "__main__":
+    write_test_file()
+```
+
+This script creates a file named `test.txt` and writes the text "Тест успешный" into it. It includes error handling to catch any exceptions that might occur during the file operation.
