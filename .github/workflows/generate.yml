@@ -28,6 +28,10 @@ on:
         description: 'Attached file content base64-encoded'
         default: ''
         type: string
+      total_budget:
+        description: 'Total token budget across all iterations (0 = use max_iters mode)'
+        default: '0'
+        type: string
 
 permissions:
   contents: write
@@ -70,7 +74,7 @@ jobs:
           ollama list
           # Warm up: load model into RAM
           echo "Warming up model..."
-          echo "say hi" | timeout 60 ollama run qwen2.5-coder:7b || true
+          echo "Write hello world in Python" | timeout 120 ollama run qwen2.5-coder:7b || true
 
       - name: Download model (first run only)
         if: steps.ollama-cache.outputs.cache-hit != 'true'
@@ -91,12 +95,13 @@ jobs:
 
       - name: Run VIBE-CODE generator
         env:
-          PROMPT:       ${{ inputs.prompt }}
-          SESSION_ID:   ${{ inputs.session_id }}
-          MAX_ITERS:    ${{ inputs.max_iters }}
-          MAX_TOKENS:   ${{ inputs.max_tokens }}
-          FILE_NAME:    ${{ inputs.file_name }}
-          FILE_CONTENT: ${{ inputs.file_content }}
+          PROMPT:        ${{ inputs.prompt }}
+          SESSION_ID:    ${{ inputs.session_id }}
+          MAX_ITERS:     ${{ inputs.max_iters }}
+          MAX_TOKENS:    ${{ inputs.max_tokens }}
+          TOTAL_BUDGET:  ${{ inputs.total_budget }}
+          FILE_NAME:     ${{ inputs.file_name }}
+          FILE_CONTENT:  ${{ inputs.file_content }}
         run: |
           mkdir -p output
           python3 generate.py
