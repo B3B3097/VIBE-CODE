@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 VIBE-CODE local model runner.
-Two modes:
+Modes:
   - GENERATE: create code from scratch (multi-file)
-  - IMPROVE:  analyze existing file, return improved single file
+  - IMPROVE:  analyse existing file, return improved single file
 """
 import os, sys, json, subprocess, re, time, urllib.request, base64
 from datetime import datetime
@@ -17,39 +17,62 @@ FILE_NAME    = os.environ.get("FILE_NAME", "").strip()
 FILE_CONTENT_B64 = os.environ.get("FILE_CONTENT", "").strip()
 OLLAMA_HOST  = "http://127.0.0.1:11434"
 
-# Decode attached file if provided
+# Chars-per-token heuristic — used to detect short responses
+CHARS_PER_TOKEN = 3.5
+# If response uses less than this fraction of the budget, expand
+SHORT_THRESHOLD = 0.40
+
 ATTACHED_CONTENT = ""
 if FILE_CONTENT_B64:
     try:
         ATTACHED_CONTENT = base64.b64decode(FILE_CONTENT_B64).decode("utf-8")
     except Exception as e:
-        print(f"⚠️  Could not decode file content: {e}")
+        print(f"⚠️  Cannot decode file: {e}")
 
 MODE = "improve" if ATTACHED_CONTENT else "generate"
 
-SYSTEM_GENERATE = """You are an elite software engineer. Your task:
-1. Write COMPLETE, immediately runnable production-grade code — no placeholders, no "TODO"
-2. Mark EVERY file with its filename in the first line comment:
+# ── System prompts ─────────────────────────────────────────────────────────────
+
+SYSTEM_GENERATE = f"""You are an elite software engineer. Budget: {MAX_TOKENS} tokens.
+
+RULES — follow all of them:
+1. Write COMPLETE, immediately runnable, production-grade code. No placeholders. No "TODO". No "...".
+2. Start every code block with the filename as a comment:
    ```python
    # main.py
-   ...code...
+   ...full code...
    ```
-3. Include ALL required files: main code, requirements.txt or package.json if needed
-4. Handle errors gracefully, add input validation
-5. After writing, mentally run through every line to catch bugs before returning"""
+3. Include EVERY file needed:
+   - Main source file(s)
+   - requirements.txt  (if any pip packages are used)
+   - .env.example      (if any env vars are needed)
+   - README.md         (brief setup + run instructions)
+4. Each function must have a docstring.
+5. Handle ALL possible errors (file not found, network failure, bad input, etc.).
+6. Add input validation everywhere user data enters.
+7. Use your FULL token budget — write comprehensive, detailed, production-quality code.
+   Do NOT stop early. If the task is simple, make it excellent: add tests, logging, CLI args."""
 
-SYSTEM_IMPROVE = """You are an expert code reviewer and senior engineer.
+SYSTEM_IMPROVE = f"""You are an expert code reviewer and senior engineer. Budget: {MAX_TOKENS} tokens.
+
 You are given an existing file. Your task:
-1. Carefully read and understand every line of the file
-2. Find ALL bugs, errors, bad practices, missing error handling
-3. Improve the code: fix bugs, add validation, improve readability, optimize where needed
-4. Return ONLY the complete improved file — single code block, same filename
-5. Do NOT split into multiple files, do NOT add extra files
-6. The file must be immediately runnable after your changes
-7. Preserve the original purpose and behavior, only improve quality"""
+1. Read EVERY line carefully.
+2. Find ALL bugs, logic errors, missing error handling, bad practices, security issues.
+3. Rewrite the ENTIRE file with all improvements applied:
+   - Fix every bug found
+   - Add comprehensive error handling (try/except with meaningful messages)
+   - Add type hints to all functions
+   - Add docstrings to every function and class
+   - Add input validation
+   - Improve variable names and code clarity
+   - Add logging where appropriate
+4. Return ONE complete code block — the full improved file.
+5. Do NOT split into multiple files. Do NOT add extra files.
+6. Use your FULL token budget — be thorough and detailed.
+7. After the code block, add a ## Changes section listing every improvement made."""
 
 
-# ─── Ollama ───────────────────────────────────────────────────────────────────
+# ── Ollama ────────────────────────────────────────────────────────────────────
 
 def ollama_ready(timeout=90):
     for _ in range(timeout):
@@ -60,16 +83,20 @@ def ollama_ready(timeout=90):
             time.sleep(1)
     return False
 
-def call_model(messages):
+
+def call_model(messages, max_tokens=None):
+    """Call Ollama /api/chat. Returns (text, tokens_used)."""
+    n = max_tokens or MAX_TOKENS
     body = json.dumps({
-        "model": MODEL_NAME,
+        "model":   MODEL_NAME,
         "messages": messages,
-        "stream": False,
+        "stream":  False,
         "options": {
-            "num_predict": MAX_TOKENS,
-            "num_ctx":     MAX_TOKENS,
+            "num_predict": n,
+            "num_ctx":     n,
             "temperature": 0.12,
-            "top_p":       0.9,
+            "top_p":       0.92,
+            "repeat_penalty": 1.05,
         },
     }).encode()
     req = urllib.request.Request(
@@ -79,10 +106,23 @@ def call_model(messages):
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=7200) as r:
-        return json.loads(r.read())["message"]["content"]
+        d = json.loads(r.read())
+    text  = d["message"]["content"]
+    used  = d.get("eval_count", len(text) // CHARS_PER_TOKEN)
+    return text, int(used)
 
 
-# ─── Parsing ──────────────────────────────────────────────────────────────────
+def is_short(text, used_tokens):
+    """Return True if model used less than SHORT_THRESHOLD of its budget."""
+    budget    = MAX_TOKENS
+    threshold = int(budget * SHORT_THRESHOLD)
+    short     = used_tokens < threshold
+    print(f"   Token budget: {used_tokens}/{budget}  ({used_tokens/budget*100:.1f}%)  "
+          f"{'SHORT — will expand' if short else 'OK'}")
+    return short
+
+
+# ── Code parsing ──────────────────────────────────────────────────────────────
 
 LANG_DEFAULTS = {
     "python":"main.py","py":"main.py",
@@ -92,6 +132,7 @@ LANG_DEFAULTS = {
     "bash":"run.sh","sh":"run.sh",
     "json":"config.json","sql":"schema.sql",
     "go":"main.go","rust":"main.rs","dockerfile":"Dockerfile",
+    "text":"notes.txt","txt":"notes.txt","markdown":"README.md","md":"README.md",
 }
 
 def parse_files(text):
@@ -101,59 +142,63 @@ def parse_files(text):
         lang    = m.group(1).lower() or "text"
         name    = m.group(2)
         content = m.group(3).strip()
-        if not content:
+        if not content or len(content) < 5:
             continue
         if not name:
             name = LANG_DEFAULTS.get(lang, f"file_{len(files)}.txt")
             if any(f["name"] == name for f in files):
-                name = name.replace(".", f"_{len(files)}.", 1)
+                base, ext = name.rsplit(".", 1) if "." in name else (name, "txt")
+                name = f"{base}_{len(files)}.{ext}"
         files.append({"lang": lang, "name": name, "content": content})
     return files
 
-def parse_single_file(text, fallback_name):
-    """Extract the first (and only) code block, use fallback_name if no filename comment."""
+
+def parse_single(text, fallback_name):
     pattern = r"```(\w*)\n(?:(?:#|//|<!--)\s*(\S+\.\S+).*?\n)?([^`]*?)```"
     m = re.search(pattern, text, re.DOTALL)
     if not m:
         return None
-    lang    = m.group(1).lower() or "text"
-    name    = m.group(2) or fallback_name
-    content = m.group(3).strip()
+    lang, name, content = m.group(1).lower() or "text", m.group(2) or fallback_name, m.group(3).strip()
     return {"lang": lang, "name": name, "content": content} if content else None
 
 
-# ─── Testing ──────────────────────────────────────────────────────────────────
+# ── Testing ───────────────────────────────────────────────────────────────────
 
-def test_single_file(file_obj, workdir):
-    os.makedirs(workdir, exist_ok=True)
-    path = os.path.join(workdir, file_obj["name"])
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(file_obj["content"])
+def install_reqs(workdir):
+    req = os.path.join(workdir, "requirements.txt")
+    if not os.path.exists(req):
+        return True, ""
+    r = subprocess.run(
+        ["pip", "install", "-r", req, "-q", "--break-system-packages"],
+        capture_output=True, timeout=120
+    )
+    if r.returncode != 0:
+        return False, "pip install failed:\n" + r.stderr.decode(errors="replace")[:600]
+    return True, ""
 
-    if file_obj["lang"] not in ("python", "py"):
-        return True, "(non-Python file — skipping runtime test)"
 
+def test_python(file_name, workdir, timeout=25):
     try:
         r = subprocess.run(
             ["python3", "-c",
-             f"import ast; ast.parse(open('{file_obj['name']}').read()); print('SYNTAX OK')"],
+             f"import ast; ast.parse(open('{file_name}').read()); print('SYNTAX OK')"],
             cwd=workdir, capture_output=True, text=True, timeout=10
         )
         if r.returncode != 0:
-            return False, "Syntax error:\n" + r.stderr[:1000]
-
+            return False, "Syntax error:\n" + r.stderr[:800]
         r2 = subprocess.run(
-            ["python3", file_obj["name"]],
-            cwd=workdir, capture_output=True, text=True, timeout=20,
+            ["python3", file_name],
+            cwd=workdir, capture_output=True, text=True, timeout=timeout,
             env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
         )
         if r2.returncode == 0:
-            return True, r2.stdout[:800] or "(exited cleanly)"
-        return False, r2.stderr[:800] or r2.stdout[:800]
+            return True, r2.stdout[:600] or "(exited cleanly)"
+        return False, r2.stderr[:600] or r2.stdout[:600]
     except subprocess.TimeoutExpired:
-        return True, "(ran, timed out — likely a long-running service, OK)"
-    except Exception as exc:
-        return False, str(exc)
+        return True, "(ran, timed out — OK for long-running services)"
+    except Exception as e:
+        return False, str(e)
+
 
 def test_code(files, workdir):
     os.makedirs(workdir, exist_ok=True)
@@ -162,74 +207,64 @@ def test_code(files, workdir):
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         with open(dest, "w", encoding="utf-8") as fp:
             fp.write(f["content"])
-
-    req = os.path.join(workdir, "requirements.txt")
-    if os.path.exists(req):
-        r = subprocess.run(
-            ["pip", "install", "-r", req, "-q", "--break-system-packages"],
-            capture_output=True, timeout=120
-        )
-        if r.returncode != 0:
-            return False, "pip install failed:\n" + r.stderr.decode(errors="replace")[:800]
-
-    candidates = [f for f in files if f["lang"] in ("python", "py")]
-    if not candidates:
-        return True, "(no Python code to test)"
-    main_f = next((f for f in candidates if "main" in f["name"]), candidates[0])
-
-    try:
-        r = subprocess.run(
-            ["python3", "-c",
-             f"import ast; ast.parse(open('{main_f['name']}').read()); print('SYNTAX OK')"],
-            cwd=workdir, capture_output=True, text=True, timeout=15
-        )
-        if r.returncode != 0:
-            return False, "Syntax error:\n" + r.stderr[:800]
-
-        r2 = subprocess.run(
-            ["python3", main_f["name"]],
-            cwd=workdir, capture_output=True, text=True, timeout=25,
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
-        )
-        if r2.returncode == 0:
-            return True, r2.stdout[:800] or "(exited cleanly)"
-        return False, r2.stderr[:800] or r2.stdout[:800]
-    except subprocess.TimeoutExpired:
-        return True, "(ran, timed out — OK for services)"
-    except Exception as exc:
-        return False, str(exc)
+    ok, err = install_reqs(workdir)
+    if not ok:
+        return False, err
+    py = [f for f in files if f["lang"] in ("python", "py")]
+    if not py:
+        return True, "(no Python to test)"
+    main_f = next((f for f in py if "main" in f["name"]), py[0])
+    return test_python(main_f["name"], workdir)
 
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
+def test_single_file(file_obj, workdir):
+    os.makedirs(workdir, exist_ok=True)
+    with open(os.path.join(workdir, file_obj["name"]), "w", encoding="utf-8") as f:
+        f.write(file_obj["content"])
+    if file_obj["lang"] not in ("python", "py"):
+        return True, "(non-Python — skipping runtime test)"
+    return test_python(file_obj["name"], workdir)
 
-def write_progress(folder, status, msg, files=None):
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def write_progress(folder, status, msg, files=None, mode=MODE):
     data = {"status": status, "message": msg, "folder": folder,
-            "timestamp": datetime.now().isoformat(), "files": files or [], "mode": MODE}
+            "timestamp": datetime.now().isoformat(), "files": files or [], "mode": mode}
     with open(os.path.join(folder, "_progress.json"), "w") as f:
         json.dump(data, f, ensure_ascii=False)
+
 
 def slugify(text, n=40):
     s = re.sub(r"[^a-zA-Z0-9а-яёА-ЯЁ]+", "-", text[:n]).strip("-").lower()
     return s or "project"
 
 
-# ─── IMPROVE MODE ─────────────────────────────────────────────────────────────
+def save_raw(text, n):
+    """Save raw model response to /tmp only (not committed to repo)."""
+    with open(f"/tmp/vc_raw_{n}.txt", "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+# ── IMPROVE MODE ──────────────────────────────────────────────────────────────
 
 def run_improve():
     date    = datetime.now().strftime("%Y-%m-%d")
-    slug    = slugify(FILE_NAME.split(".")[0] or PROMPT or "improved")
+    slug    = slugify(FILE_NAME.rsplit(".", 1)[0] if "." in FILE_NAME else FILE_NAME or "file")
     folder  = f"output/{date}_improved_{slug}"
     workdir = f"/tmp/vc_{SESSION_ID}"
     os.makedirs(folder, exist_ok=True)
 
-    user_request = PROMPT.strip() or "Проверь и улучши этот файл максимально."
+    user_request = PROMPT.strip() or \
+        "Fix all bugs, improve error handling, add type hints, docstrings, and input validation."
+    ext = FILE_NAME.rsplit(".", 1)[-1].lower() if "." in FILE_NAME else "txt"
 
     print(f"\n{'='*60}")
-    print(f"🔧 VIBE-CODE — File Improvement Mode")
-    print(f"📄 File    : {FILE_NAME}  ({len(ATTACHED_CONTENT)} chars)")
-    print(f"📝 Request : {user_request[:100]}")
-    print(f"🤖 Model   : {MODEL_NAME}")
-    print(f"🔄 Iters   : {MAX_ITERS}")
+    print(f"🔧 VIBE-CODE — Improve Mode")
+    print(f"📄 File   : {FILE_NAME}  ({len(ATTACHED_CONTENT.splitlines())} lines)")
+    print(f"📝 Task   : {user_request[:100]}")
+    print(f"🤖 Model  : {MODEL_NAME}  Budget: {MAX_TOKENS} tokens")
+    print(f"🔄 Iters  : {MAX_ITERS}")
     print(f"{'='*60}\n")
 
     print("⏳ Waiting for Ollama...")
@@ -237,17 +272,13 @@ def run_improve():
         print("❌ Ollama not ready"); sys.exit(1)
     print("✅ Ollama ready\n")
 
-    # Detect language for syntax check
-    ext = FILE_NAME.rsplit(".", 1)[-1].lower() if "." in FILE_NAME else ""
-
     messages = [
         {"role": "system", "content": SYSTEM_IMPROVE},
         {"role": "user", "content":
-            f"Here is the file `{FILE_NAME}`:\n\n"
+            f"File: `{FILE_NAME}`\n\n"
             f"```{ext}\n# {FILE_NAME}\n{ATTACHED_CONTENT}\n```\n\n"
             f"Task: {user_request}\n\n"
-            f"Return ONLY the complete improved file in a single code block. "
-            f"Start the block with `# {FILE_NAME}` as first line comment."
+            f"Return the complete improved file in ONE code block starting with `# {FILE_NAME}`."
         },
     ]
 
@@ -256,78 +287,111 @@ def run_improve():
 
     for it in range(MAX_ITERS):
         tag = f"ITER {it+1}/{MAX_ITERS}"
-        print(f"[{tag}] {'🔍 Analyzing and improving...' if it==0 else '🔄 Verifying and polishing...'}")
+        label = "🔍 Analysing and improving..." if it == 0 else "🔄 Expanding and polishing..."
+        print(f"\n[{tag}] {label}")
 
-        t0  = time.time()
-        raw = call_model(messages)
-        print(f"[{tag}] ✅ Response: {len(raw):,} chars ({time.time()-t0:.1f}s)")
+        t0 = time.time()
+        raw, used = call_model(messages)
+        dt = time.time() - t0
+        print(f"[{tag}] ✅ {len(raw):,} chars  {used:,} tokens  ({dt:.0f}s)")
+        save_raw(raw, it + 1)
 
-        with open(os.path.join(folder, f"_raw_{it+1}.txt"), "w", encoding="utf-8") as f:
-            f.write(raw)
+        file_obj = parse_single(raw, FILE_NAME)
 
-        file_obj = parse_single_file(raw, FILE_NAME)
-        if not file_obj:
-            print(f"[{tag}] ⚠️  No code block, retrying...")
+        # Expand if short (only on first iteration)
+        if it == 0 and is_short(raw, used) and not file_obj:
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content":
-                f"Return the improved file in a single code block:\n"
-                f"```{ext}\n# {FILE_NAME}\n...improved code...\n```"
+                f"Your response was too brief. Use your full {MAX_TOKENS}-token budget.\n"
+                f"Rewrite `{FILE_NAME}` COMPLETELY with:\n"
+                f"- Every function documented with detailed docstrings\n"
+                f"- Comprehensive error handling for every operation\n"
+                f"- Type hints on all function signatures\n"
+                f"- Thorough input validation\n"
+                f"- Detailed inline comments explaining non-obvious logic\n"
+                f"Return the complete file in one code block."
             })
+            continue
+
+        if not file_obj:
+            messages.append({"role": "assistant", "content": raw})
+            messages.append({"role": "user", "content":
+                f"Return the improved `{FILE_NAME}` in exactly one code block:\n"
+                f"```{ext}\n# {FILE_NAME}\n...complete code...\n```"
+            })
+            write_progress(folder, "running", f"[{tag}] No code block — retrying...")
             continue
 
         last_file = file_obj
         test_ok, test_out = test_single_file(file_obj, f"{workdir}_it{it}")
         print(f"[{tag}] {'✅' if test_ok else '❌'} Test: {test_out[:200]}")
-
-        write_progress(folder, "running",
-            f"Iter {it+1}: {'✅ OK' if test_ok else '❌ fixing...'}")
+        write_progress(folder, "running", f"[{tag}]: {'✅ OK' if test_ok else '❌ fixing...'}")
 
         if test_ok:
-            if it < MAX_ITERS - 1:
+            if it < MAX_ITERS - 1 and is_short(raw, used):
                 messages.append({"role": "assistant", "content": raw})
                 messages.append({"role": "user", "content":
-                    "The file works correctly. Do one final pass:\n"
-                    "1. Add/improve docstrings and inline comments\n"
-                    "2. Strengthen all error handling\n"
-                    "3. Remove any dead code\n"
-                    "Return the COMPLETE final file. "
-                    "If already perfect, start your response with DONE."
+                    f"Good — it works! But you only used {used}/{MAX_TOKENS} tokens.\n"
+                    f"Use your remaining budget to make the file more complete:\n"
+                    f"- Add comprehensive unit tests at the bottom of the file (in `if __name__ == '__main__'`)\n"
+                    f"- Expand all docstrings with parameter descriptions and examples\n"
+                    f"- Add more detailed logging\n"
+                    f"- Add CLI argument parsing if not already present\n"
+                    f"Return the COMPLETE expanded file."
                 })
-                if raw.strip().startswith("DONE"):
-                    print(f"[{tag}] 🎯 Model: file is perfect!")
-                    break
             else:
                 break
         else:
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content":
-                f"This error occurred:\n```\n{test_out[:1200]}\n```\n\n"
-                f"Fix ALL issues and return the complete corrected `{FILE_NAME}`."
+                f"Error during execution:\n```\n{test_out[:1000]}\n```\n\n"
+                f"Fix ALL issues. Return complete `{FILE_NAME}`."
             })
 
-    # Save output
     if last_file:
+        # Extract ## Changes section if present
+        changes_section = ""
+        if "## Changes" in raw:
+            changes_section = raw[raw.index("## Changes"):]
+
         out_path = os.path.join(folder, last_file["name"])
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(last_file["content"])
-        print(f"\n✅ Saved: {out_path}")
 
-        # Diff summary
         orig_lines = ATTACHED_CONTENT.splitlines()
         new_lines  = last_file["content"].splitlines()
-        print(f"   Original: {len(orig_lines)} lines  →  Improved: {len(new_lines)} lines")
+        delta      = len(new_lines) - len(orig_lines)
+        delta_str  = f"+{delta}" if delta >= 0 else str(delta)
+
+        # Write a clean CHANGES.md
+        changes_md = f"""# Changes to `{last_file['name']}`
+
+**Improved by VIBE-CODE AI** · {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}
+
+| | |
+|---|---|
+| **Original** | {len(orig_lines)} lines |
+| **Improved** | {len(new_lines)} lines ({delta_str}) |
+| **Task** | {user_request} |
+
+{changes_section if changes_section else ""}
+"""
+        with open(os.path.join(folder, "CHANGES.md"), "w", encoding="utf-8") as f:
+            f.write(changes_md)
 
         write_progress(folder, "done",
-            f"✅ {last_file['name']} improved ({len(orig_lines)}→{len(new_lines)} lines)",
-            files=[last_file["name"]]
-        )
-        print(f"\n✅ DONE! Output: {folder}/{last_file['name']}")
+            f"✅ {last_file['name']} improved ({len(orig_lines)}→{len(new_lines)} lines, {delta_str})",
+            files=[last_file["name"], "CHANGES.md"])
+
+        print(f"\n✅ DONE!")
+        print(f"   File  : {out_path}")
+        print(f"   Lines : {len(orig_lines)} → {len(new_lines)} ({delta_str})")
     else:
-        write_progress(folder, "error", "Could not extract improved file")
-        print("❌ No output generated"); sys.exit(1)
+        write_progress(folder, "error", "No improved file extracted")
+        print("❌ No output"); sys.exit(1)
 
 
-# ─── GENERATE MODE ────────────────────────────────────────────────────────────
+# ── GENERATE MODE ─────────────────────────────────────────────────────────────
 
 def run_generate():
     date    = datetime.now().strftime("%Y-%m-%d")
@@ -336,11 +400,11 @@ def run_generate():
     os.makedirs(folder, exist_ok=True)
 
     print(f"\n{'='*60}")
-    print(f"🚀 VIBE-CODE — Code Generator Mode")
+    print(f"🚀 VIBE-CODE — Generate Mode")
     print(f"📝 Prompt  : {PROMPT[:100]}")
-    print(f"🤖 Model   : {MODEL_NAME}")
-    print(f"📁 Folder  : {folder}/")
-    print(f"🔄 Iters   : {MAX_ITERS}   Max tokens: {MAX_TOKENS}")
+    print(f"🤖 Model   : {MODEL_NAME}  Budget: {MAX_TOKENS} tokens")
+    print(f"📁 Output  : {folder}/")
+    print(f"🔄 Iters   : {MAX_ITERS}")
     print(f"{'='*60}\n")
 
     print("⏳ Waiting for Ollama...")
@@ -357,48 +421,76 @@ def run_generate():
     write_progress(folder, "running", "🧠 Generating code...")
 
     for it in range(MAX_ITERS):
-        tag = f"ITER {it+1}/{MAX_ITERS}"
-        print(f"[{tag}] {'🧠 Generating...' if it==0 else '🔄 Improving...'}")
+        tag   = f"ITER {it+1}/{MAX_ITERS}"
+        label = "🧠 Generating..." if it == 0 else "🔄 Iterating..."
+        print(f"\n[{tag}] {label}")
 
-        t0  = time.time()
-        raw = call_model(messages)
-        print(f"[{tag}] ✅ {len(raw):,} chars ({time.time()-t0:.1f}s)")
-
-        with open(os.path.join(folder, f"_raw_{it+1}.txt"), "w", encoding="utf-8") as f:
-            f.write(raw)
+        t0 = time.time()
+        raw, used = call_model(messages)
+        dt = time.time() - t0
+        print(f"[{tag}] ✅ {len(raw):,} chars  {used:,} tokens  ({dt:.0f}s)")
+        save_raw(raw, it + 1)
 
         files = parse_files(raw)
         print(f"[{tag}] 📄 {len(files)} file(s): {[f['name'] for f in files]}")
 
+        # Expand if short and no files found yet
+        if it == 0 and is_short(raw, used) and len(files) < 2:
+            messages.append({"role": "assistant", "content": raw})
+            messages.append({"role": "user", "content":
+                f"Your response only used {used}/{MAX_TOKENS} tokens. You MUST use your full budget.\n\n"
+                f"Rewrite the COMPLETE solution with:\n"
+                f"1. Full, detailed implementation — no shortcuts\n"
+                f"2. Every function with complete docstring (description, args, returns, raises, example)\n"
+                f"3. Comprehensive error handling for every possible failure\n"
+                f"4. Input validation for all user-facing inputs\n"
+                f"5. Unit tests in a `test_*.py` file\n"
+                f"6. Detailed README.md with setup, usage examples, and troubleshooting\n"
+                f"7. requirements.txt (even if empty — include a comment)\n\n"
+                f"Remember: mark every file with `# filename.ext` as first comment."
+            })
+            continue
+
         if not files:
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content":
-                "Please put ALL code in markdown code blocks with filename comment:\n"
-                "```python\n# filename.py\n...code...\n```"
+                "Put ALL code in markdown blocks with filename comment:\n"
+                "```python\n# main.py\n...code...\n```"
             })
+            write_progress(folder, "running", f"[{tag}] No code blocks — retrying...")
             continue
 
         last_files = files
         test_ok, test_out = test_code(files, f"{workdir}_it{it}")
-        print(f"[{tag}] {'✅' if test_ok else '❌'} {test_out[:250]}")
+        print(f"[{tag}] {'✅' if test_ok else '❌'} Test: {test_out[:250]}")
         write_progress(folder, "running",
-            f"Iter {it+1}: {'✅ tests pass' if test_ok else '❌ fixing...'}")
+            f"[{tag}]: {'✅ tests pass' if test_ok else '❌ fixing...'}")
 
         if test_ok:
             if it < MAX_ITERS - 1:
+                short = is_short(raw, used)
                 messages.append({"role": "assistant", "content": raw})
-                messages.append({"role": "user", "content":
-                    "Code runs! Now: add error handling, docstrings, input validation. "
-                    "Write COMPLETE improved version. Start with CODE_IS_READY if already excellent."
-                })
-                if "CODE_IS_READY" in raw[:60]:
-                    break
+                if short:
+                    messages.append({"role": "user", "content":
+                        f"Code works! But only {used}/{MAX_TOKENS} tokens used.\n"
+                        f"Expand with: comprehensive unit tests (test_main.py), "
+                        f"detailed README.md with examples, enhanced error handling, "
+                        f"CLI args if applicable. Write COMPLETE files."
+                    })
+                else:
+                    messages.append({"role": "user", "content":
+                        "Code works! Final pass: strengthen error handling, improve docstrings, "
+                        "add any missing edge cases. Write COMPLETE files. "
+                        "If already excellent write CODE_IS_READY."
+                    })
+                    if "CODE_IS_READY" in raw[:80]:
+                        break
             else:
                 break
         else:
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content":
-                f"Error:\n```\n{test_out[:1200]}\n```\nFix ALL bugs, return complete files."
+                f"Error:\n```\n{test_out[:1000]}\n```\nFix ALL bugs. Return complete files."
             })
 
     if last_files:
@@ -408,38 +500,50 @@ def run_generate():
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, "w", encoding="utf-8") as fp:
                 fp.write(f["content"])
-            print(f"   📝 {dest}")
+            print(f"   📝 {dest}  ({len(f['content'].splitlines())} lines)")
 
-        readme = f"""# {slugify(PROMPT).replace('-',' ').title()}
+        # Write README only if model didn't generate one
+        if not any(f["name"].lower() in ("readme.md", "readme") for f in last_files):
+            run_instr = ""
+            if any(f["name"] == "requirements.txt" for f in last_files):
+                run_instr = "pip install -r requirements.txt\n"
+            main_py = next((f["name"] for f in last_files if "main" in f["name"] and f["lang"] in ("python","py")), None)
+            run_instr += f"python {main_py}" if main_py else "see source files"
 
-**Сгенерировано VIBE-CODE AI**
+            readme = f"""# {slugify(PROMPT).replace('-',' ').title()}
+
+**Generated by VIBE-CODE AI**
 
 | | |
 |---|---|
-| **Запрос** | {PROMPT} |
-| **Модель** | {MODEL_NAME} |
-| **Дата** | {datetime.now().strftime('%Y-%m-%d %H:%M UTC')} |
+| **Prompt** | {PROMPT} |
+| **Model** | {MODEL_NAME} |
+| **Date** | {datetime.now().strftime('%Y-%m-%d %H:%M UTC')} |
 
-## Файлы
-{chr(10).join(f'- `{f["name"]}`' for f in last_files)}
+## Files
+{chr(10).join(f'- `{f["name"]}` — {len(f["content"].splitlines())} lines' for f in last_files)}
 
-## Запуск
+## Run
 ```bash
-{'pip install -r requirements.txt && ' if any(f["name"]=="requirements.txt" for f in last_files) else ''}python main.py
+{run_instr}
 ```
 """
-        with open(os.path.join(folder, "README.md"), "w") as f:
-            f.write(readme)
+            with open(os.path.join(folder, "README.md"), "w") as f:
+                f.write(readme)
+            last_files.append({"name": "README.md"})
 
-        write_progress(folder, "done", f"✅ {len(last_files)} file(s) in {folder}/",
-                       files=[f["name"] for f in last_files] + ["README.md"])
-        print(f"\n✅ DONE! Folder: {folder}/")
+        write_progress(folder, "done",
+            f"✅ {len(last_files)} file(s) generated",
+            files=[f["name"] for f in last_files])
+
+        print(f"\n✅ DONE!  Output: {folder}/")
+        print(f"   Files : {[f['name'] for f in last_files]}")
     else:
-        write_progress(folder, "error", "No code blocks found")
+        write_progress(folder, "error", "No code blocks found in any iteration")
         print("❌ No code generated"); sys.exit(1)
 
 
-# ─── Entry point ──────────────────────────────────────────────────────────────
+# ── Entry ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     if not PROMPT and not ATTACHED_CONTENT:
@@ -448,5 +552,5 @@ if __name__ == "__main__":
         run_improve()
     else:
         if not PROMPT:
-            print("ERROR: PROMPT is empty"); sys.exit(1)
+            print("ERROR: PROMPT is required in generate mode"); sys.exit(1)
         run_generate()
