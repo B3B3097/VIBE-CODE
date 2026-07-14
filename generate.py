@@ -17,10 +17,21 @@ FILE_NAME    = os.environ.get("FILE_NAME", "").strip()
 FILE_CONTENT_B64 = os.environ.get("FILE_CONTENT", "").strip()
 OLLAMA_HOST  = "http://127.0.0.1:11434"
 
-# Chars-per-token heuristic — used to detect short responses
+# num_ctx must be LARGER than num_predict to leave room for the input tokens
+# Input (system + user + history) can easily be 4-8K tokens
+CTX_BUDGET   = MAX_TOKENS + 8192
+
 CHARS_PER_TOKEN = 3.5
-# If response uses less than this fraction of the budget, expand
 SHORT_THRESHOLD = 0.40
+
+# Refusal patterns — if model returns one of these, we rephrase
+REFUSAL_PATTERNS = [
+    r"i (cannot|can't|am unable|won't|will not|don't)",
+    r"(sorry|apolog|unfortunately).{0,60}(cannot|can't|help|assist)",
+    r"i('m| am) not able",
+    r"(violate|against|policy|guidelines|ethical|harmful)",
+    r"(не могу|не буду|не в состоянии|отказыва).{0,40}(помо|выполн|делать|создав)",
+]
 
 ATTACHED_CONTENT = ""
 if FILE_CONTENT_B64:
@@ -33,43 +44,37 @@ MODE = "improve" if ATTACHED_CONTENT else "generate"
 
 # ── System prompts ─────────────────────────────────────────────────────────────
 
-SYSTEM_GENERATE = f"""You are an elite software engineer. Budget: {MAX_TOKENS} tokens.
+SYSTEM_GENERATE = f"""You are an elite software engineer. Token budget: {MAX_TOKENS}.
 
-RULES — follow all of them:
-1. Write COMPLETE, immediately runnable, production-grade code. No placeholders. No "TODO". No "...".
+RULES:
+1. Write COMPLETE, immediately runnable, production-grade code. No placeholders. No "TODO".
 2. Start every code block with the filename as a comment:
    ```python
    # main.py
    ...full code...
    ```
-3. Include EVERY file needed:
-   - Main source file(s)
-   - requirements.txt  (if any pip packages are used)
-   - .env.example      (if any env vars are needed)
-   - README.md         (brief setup + run instructions)
+3. Include EVERY file needed: source files, requirements.txt, README.md.
 4. Each function must have a docstring.
-5. Handle ALL possible errors (file not found, network failure, bad input, etc.).
+5. Handle ALL possible errors (file not found, network failure, bad input).
 6. Add input validation everywhere user data enters.
-7. Use your FULL token budget — write comprehensive, detailed, production-quality code.
-   Do NOT stop early. If the task is simple, make it excellent: add tests, logging, CLI args."""
+7. Use your FULL token budget — write comprehensive, detailed code.
+"""
 
-SYSTEM_IMPROVE = f"""You are an expert code reviewer and senior engineer. Budget: {MAX_TOKENS} tokens.
+SYSTEM_IMPROVE = f"""You are an expert code reviewer. Token budget: {MAX_TOKENS}.
 
-You are given an existing file. Your task:
+Given an existing file:
 1. Read EVERY line carefully.
-2. Find ALL bugs, logic errors, missing error handling, bad practices, security issues.
-3. Rewrite the ENTIRE file with all improvements applied:
-   - Fix every bug found
-   - Add comprehensive error handling (try/except with meaningful messages)
+2. Find ALL bugs, logic errors, missing error handling, security issues.
+3. Rewrite the ENTIRE file with all improvements:
+   - Fix every bug
+   - Add comprehensive error handling
    - Add type hints to all functions
    - Add docstrings to every function and class
    - Add input validation
    - Improve variable names and code clarity
-   - Add logging where appropriate
 4. Return ONE complete code block — the full improved file.
-5. Do NOT split into multiple files. Do NOT add extra files.
-6. Use your FULL token budget — be thorough and detailed.
-7. After the code block, add a ## Changes section listing every improvement made."""
+5. After the code block, add a ## Changes section.
+"""
 
 
 # ── Ollama ────────────────────────────────────────────────────────────────────
@@ -93,8 +98,8 @@ def call_model(messages, max_tokens=None):
         "stream":  False,
         "options": {
             "num_predict": n,
-            "num_ctx":     n,
-            "temperature": 0.12,
+            "num_ctx":     CTX_BUDGET,   # larger than num_predict to fit input
+            "temperature": 0.25,
             "top_p":       0.92,
             "repeat_penalty": 1.05,
         },
@@ -110,6 +115,15 @@ def call_model(messages, max_tokens=None):
     text  = d["message"]["content"]
     used  = d.get("eval_count", len(text) // CHARS_PER_TOKEN)
     return text, int(used)
+
+
+def is_refusal(text):
+    """Return True if the model response looks like a refusal."""
+    t = text.lower().strip()
+    for pat in REFUSAL_PATTERNS:
+        if re.search(pat, t):
+            return True
+    return False
 
 
 def is_short(text, used_tokens):
@@ -241,9 +255,15 @@ def slugify(text, n=40):
 
 
 def save_raw(text, n):
-    """Save raw model response to /tmp only (not committed to repo)."""
     with open(f"/tmp/vc_raw_{n}.txt", "w", encoding="utf-8") as f:
         f.write(text)
+
+
+def log_response(tag, raw, used, elapsed):
+    preview = raw[:300].replace('\n', ' ')
+    print(f"[{tag}] Response preview: {preview!r}")
+    if is_refusal(raw):
+        print(f"[{tag}] ⚠️  REFUSAL DETECTED — will rephrase prompt")
 
 
 # ── IMPROVE MODE ──────────────────────────────────────────────────────────────
@@ -263,7 +283,7 @@ def run_improve():
     print(f"🔧 VIBE-CODE — Improve Mode")
     print(f"📄 File   : {FILE_NAME}  ({len(ATTACHED_CONTENT.splitlines())} lines)")
     print(f"📝 Task   : {user_request[:100]}")
-    print(f"🤖 Model  : {MODEL_NAME}  Budget: {MAX_TOKENS} tokens")
+    print(f"🤖 Model  : {MODEL_NAME}  Budget: {MAX_TOKENS} tokens  Ctx: {CTX_BUDGET}")
     print(f"🔄 Iters  : {MAX_ITERS}")
     print(f"{'='*60}\n")
 
@@ -295,20 +315,28 @@ def run_improve():
         dt = time.time() - t0
         print(f"[{tag}] ✅ {len(raw):,} chars  {used:,} tokens  ({dt:.0f}s)")
         save_raw(raw, it + 1)
+        log_response(tag, raw, used, dt)
 
         file_obj = parse_single(raw, FILE_NAME)
 
-        # Expand if short (only on first iteration)
+        if is_refusal(raw):
+            messages = [
+                {"role": "system", "content": SYSTEM_IMPROVE},
+                {"role": "user", "content":
+                    f"Please review and improve this code file. Return the complete improved version.\n\n"
+                    f"```{ext}\n# {FILE_NAME}\n{ATTACHED_CONTENT[:3000]}\n```\n\n"
+                    f"Fix bugs, add error handling, add docstrings. "
+                    f"Return ONE complete code block with `# {FILE_NAME}` as first comment."
+                },
+            ]
+            write_progress(folder, "running", f"[{tag}] Rephrasing after refusal...")
+            continue
+
         if it == 0 and is_short(raw, used) and not file_obj:
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content":
                 f"Your response was too brief. Use your full {MAX_TOKENS}-token budget.\n"
-                f"Rewrite `{FILE_NAME}` COMPLETELY with:\n"
-                f"- Every function documented with detailed docstrings\n"
-                f"- Comprehensive error handling for every operation\n"
-                f"- Type hints on all function signatures\n"
-                f"- Thorough input validation\n"
-                f"- Detailed inline comments explaining non-obvious logic\n"
+                f"Rewrite `{FILE_NAME}` COMPLETELY with detailed docstrings, error handling, type hints.\n"
                 f"Return the complete file in one code block."
             })
             continue
@@ -332,11 +360,7 @@ def run_improve():
                 messages.append({"role": "assistant", "content": raw})
                 messages.append({"role": "user", "content":
                     f"Good — it works! But you only used {used}/{MAX_TOKENS} tokens.\n"
-                    f"Use your remaining budget to make the file more complete:\n"
-                    f"- Add comprehensive unit tests at the bottom of the file (in `if __name__ == '__main__'`)\n"
-                    f"- Expand all docstrings with parameter descriptions and examples\n"
-                    f"- Add more detailed logging\n"
-                    f"- Add CLI argument parsing if not already present\n"
+                    f"Expand with comprehensive unit tests and more detailed docstrings.\n"
                     f"Return the COMPLETE expanded file."
                 })
             else:
@@ -349,7 +373,6 @@ def run_improve():
             })
 
     if last_file:
-        # Extract ## Changes section if present
         changes_section = ""
         if "## Changes" in raw:
             changes_section = raw[raw.index("## Changes"):]
@@ -363,7 +386,6 @@ def run_improve():
         delta      = len(new_lines) - len(orig_lines)
         delta_str  = f"+{delta}" if delta >= 0 else str(delta)
 
-        # Write a clean CHANGES.md
         changes_md = f"""# Changes to `{last_file['name']}`
 
 **Improved by VIBE-CODE AI** · {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}
@@ -401,8 +423,8 @@ def run_generate():
 
     print(f"\n{'='*60}")
     print(f"🚀 VIBE-CODE — Generate Mode")
-    print(f"📝 Prompt  : {PROMPT[:100]}")
-    print(f"🤖 Model   : {MODEL_NAME}  Budget: {MAX_TOKENS} tokens")
+    print(f"📝 Prompt  : {PROMPT[:120]}")
+    print(f"🤖 Model   : {MODEL_NAME}  Budget: {MAX_TOKENS} tokens  Ctx: {CTX_BUDGET}")
     print(f"📁 Output  : {folder}/")
     print(f"🔄 Iters   : {MAX_ITERS}")
     print(f"{'='*60}\n")
@@ -417,6 +439,7 @@ def run_generate():
         {"role": "user",   "content": PROMPT},
     ]
     last_files = []
+    refusal_count = 0
 
     write_progress(folder, "running", "🧠 Generating code...")
 
@@ -430,24 +453,43 @@ def run_generate():
         dt = time.time() - t0
         print(f"[{tag}] ✅ {len(raw):,} chars  {used:,} tokens  ({dt:.0f}s)")
         save_raw(raw, it + 1)
+        log_response(tag, raw, used, dt)
+
+        # Handle refusals by simplifying/rephrasing
+        if is_refusal(raw):
+            refusal_count += 1
+            print(f"[{tag}] ⚠️  Refusal #{refusal_count} — rephrasing prompt in English")
+            # Strip to a simple English version of the request
+            simple = (
+                "Write a Python script that does the following:\n"
+                + PROMPT[:800]
+                + "\n\nProvide complete, working Python code."
+            )
+            messages = [
+                {"role": "system", "content": SYSTEM_GENERATE},
+                {"role": "user",   "content": simple},
+            ]
+            write_progress(folder, "running", f"[{tag}] Rephrasing after refusal...")
+            if refusal_count >= 2:
+                print(f"[{tag}] ❌ Model refuses repeatedly — cannot proceed")
+                break
+            continue
 
         files = parse_files(raw)
         print(f"[{tag}] 📄 {len(files)} file(s): {[f['name'] for f in files]}")
 
-        # Expand if short and no files found yet
         if it == 0 and is_short(raw, used) and len(files) < 2:
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content":
-                f"Your response only used {used}/{MAX_TOKENS} tokens. You MUST use your full budget.\n\n"
+                f"Your response only used {used}/{MAX_TOKENS} tokens. Use your FULL budget.\n\n"
                 f"Rewrite the COMPLETE solution with:\n"
                 f"1. Full, detailed implementation — no shortcuts\n"
-                f"2. Every function with complete docstring (description, args, returns, raises, example)\n"
-                f"3. Comprehensive error handling for every possible failure\n"
-                f"4. Input validation for all user-facing inputs\n"
-                f"5. Unit tests in a `test_*.py` file\n"
-                f"6. Detailed README.md with setup, usage examples, and troubleshooting\n"
-                f"7. requirements.txt (even if empty — include a comment)\n\n"
-                f"Remember: mark every file with `# filename.ext` as first comment."
+                f"2. Every function with docstring (description, args, returns, example)\n"
+                f"3. Comprehensive error handling\n"
+                f"4. Unit tests in test_main.py\n"
+                f"5. Detailed README.md\n"
+                f"6. requirements.txt\n\n"
+                f"Mark every file with `# filename.ext` as first comment."
             })
             continue
 
@@ -474,8 +516,8 @@ def run_generate():
                     messages.append({"role": "user", "content":
                         f"Code works! But only {used}/{MAX_TOKENS} tokens used.\n"
                         f"Expand with: comprehensive unit tests (test_main.py), "
-                        f"detailed README.md with examples, enhanced error handling, "
-                        f"CLI args if applicable. Write COMPLETE files."
+                        f"detailed README.md, enhanced error handling, CLI args. "
+                        f"Write COMPLETE files."
                     })
                 else:
                     messages.append({"role": "user", "content":
@@ -502,7 +544,6 @@ def run_generate():
                 fp.write(f["content"])
             print(f"   📝 {dest}  ({len(f['content'].splitlines())} lines)")
 
-        # Write README only if model didn't generate one
         if not any(f["name"].lower() in ("readme.md", "readme") for f in last_files):
             run_instr = ""
             if any(f["name"] == "requirements.txt" for f in last_files):
@@ -516,7 +557,7 @@ def run_generate():
 
 | | |
 |---|---|
-| **Prompt** | {PROMPT} |
+| **Prompt** | {PROMPT[:200]} |
 | **Model** | {MODEL_NAME} |
 | **Date** | {datetime.now().strftime('%Y-%m-%d %H:%M UTC')} |
 
