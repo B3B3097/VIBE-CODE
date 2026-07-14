@@ -20,6 +20,8 @@ MAX_TOKENS   = int(os.environ.get("MAX_TOKENS", "8192"))
 TOTAL_BUDGET = int(os.environ.get("TOTAL_BUDGET", "0"))   # 0 = use MAX_ITERS mode
 FILE_NAME    = os.environ.get("FILE_NAME", "").strip()
 FILE_CONTENT_B64 = os.environ.get("FILE_CONTENT", "").strip()
+TARGET_REPO      = os.environ.get("TARGET_REPO", "").strip()
+REPO_CONTEXT_FILE = "/tmp/repo_context.b64"
 OLLAMA_HOST  = "http://127.0.0.1:11434"
 
 # num_ctx must be LARGER than num_predict to leave room for input tokens
@@ -46,6 +48,17 @@ if FILE_CONTENT_B64:
         ATTACHED_CONTENT = base64.b64decode(FILE_CONTENT_B64).decode("utf-8")
     except Exception as e:
         print(f"⚠️  Cannot decode file: {e}")
+
+# Load target repo context (written by workflow "Analyze target repo" step)
+REPO_FILES = {}
+if os.path.exists(REPO_CONTEXT_FILE):
+    try:
+        with open(REPO_CONTEXT_FILE) as _f:
+            _ctx = json.loads(base64.b64decode(_f.read().strip()).decode())
+        REPO_FILES = _ctx.get("files", {})
+        print(f"📚 Repo context: {len(REPO_FILES)} files from {_ctx.get('repo', '?')}  ({_ctx.get('totalChars', 0):,} chars)")
+    except Exception as _e:
+        print(f"⚠️  Cannot read repo context: {_e}")
 
 MODE = "improve" if ATTACHED_CONTENT else "generate"
 
@@ -263,9 +276,10 @@ def test_single_file(file_obj, workdir):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def write_progress(folder, status, msg, files=None, mode=MODE):
+def write_progress(folder, status, msg, files=None, mode=MODE, tokens_used=0):
     data = {"status": status, "message": msg, "folder": folder,
-            "timestamp": datetime.now().isoformat(), "files": files or [], "mode": mode}
+            "timestamp": datetime.now().isoformat(), "files": files or [], "mode": mode,
+            "tokensUsed": tokens_used}
     with open(os.path.join(folder, "_progress.json"), "w") as f:
         json.dump(data, f, ensure_ascii=False)
 
@@ -273,6 +287,19 @@ def write_progress(folder, status, msg, files=None, mode=MODE):
 def slugify(text, n=40):
     s = re.sub(r"[^a-zA-Z0-9а-яёА-ЯЁ]+", "-", text[:n]).strip("-").lower()
     return s or "project"
+
+
+def build_repo_context_prompt():
+    """Return a formatted string of repo files to inject into the model prompt."""
+    if not REPO_FILES:
+        return ""
+    parts = ["Here is the EXISTING codebase you must analyze before making changes:\n"]
+    for name, content in list(REPO_FILES.items())[:25]:
+        snippet = content[:3000]
+        if len(content) > 3000:
+            snippet += f"\n... [{len(content)-3000} more chars truncated]"
+        parts.append(f"### {name}\n```\n{snippet}\n```\n")
+    return "\n".join(parts)
 
 
 def save_raw(text, n):
@@ -450,7 +477,8 @@ def run_improve():
 
         write_progress(folder, "done",
             f"✅ {last_file['name']} improved ({len(orig_lines)}→{len(new_lines)} lines)  {total_used:,} tokens",
-            files=[last_file["name"], "CHANGES.md"])
+            files=[last_file["name"], "CHANGES.md"],
+            tokens_used=total_used)
 
         print(f"\n✅ DONE!")
         print(f"   File   : {out_path}")
@@ -483,9 +511,19 @@ def run_generate():
         print("❌ Ollama not ready"); sys.exit(1)
     print("✅ Ollama ready\n")
 
+    repo_ctx = build_repo_context_prompt()
+    if repo_ctx:
+        print(f"📚 Injecting repo context ({len(repo_ctx):,} chars) into prompt")
+        user_msg = (
+            repo_ctx + "\n\n---\n\n"
+            "Based on the existing codebase above, " + PROMPT
+        )
+    else:
+        user_msg = PROMPT
+
     messages = [
         {"role": "system", "content": SYSTEM_GENERATE},
-        {"role": "user",   "content": PROMPT},
+        {"role": "user",   "content": user_msg},
     ]
     last_files    = []
     total_used    = 0
@@ -629,7 +667,8 @@ def run_generate():
 
         write_progress(folder, "done",
             f"✅ {len(last_files)} file(s) generated  {total_used:,} tokens used",
-            files=[f["name"] for f in last_files])
+            files=[f["name"] for f in last_files],
+            tokens_used=total_used)
 
         print(f"\n✅ DONE!  Output: {folder}/")
         print(f"   Files  : {[f['name'] for f in last_files]}")
