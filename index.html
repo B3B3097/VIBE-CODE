@@ -161,6 +161,7 @@ header .spacer{flex:1}
       <option value="16384">16K</option>
       <option value="32768" selected>32K</option>
       <option value="65536">64K</option>
+      <option value="131072">128K</option>
     </select>
   </div>
   <button class="save-btn" onclick="saveSettings()">💾 Сохранить</button>
@@ -207,8 +208,19 @@ Telegram бот на aiogram 3 с SQLite.
               <option value="16384">16K</option>
               <option value="32768" selected>32K</option>
               <option value="65536">64K</option>
+              <option value="131072">128K</option>
             </select>
           </div>
+        </div>
+        <div class="opt" style="min-width:110px">
+          <label>Бюджет</label>
+          <select id="q-budget">
+            <option value="0">Авто</option>
+            <option value="100000">100K</option>
+            <option value="250000">250K</option>
+            <option value="500000">500K</option>
+            <option value="1000000">1M</option>
+          </select>
         </div>
       </div>
     </div>
@@ -225,7 +237,7 @@ Telegram бот на aiogram 3 с SQLite.
         📎 Перетащите файл сюда или <span onclick="document.getElementById('file-input').click()">выберите</span>
       </div>
       <div class="drop-hint" style="margin-top:5px;font-size:10px">
-        Поддерживаются: .py .js .ts .html .css .sh .sql .json .go .rs .txt и другие текстовые файлы (до 200 КБ)
+        Поддерживаются: .py .js .ts .html .css .sh .sql .json .go .rs .txt и другие текстовые файлы (до 1 МБ)
       </div>
     </div>
     <div id="attach-filled" style="display:none">
@@ -293,11 +305,14 @@ function loadSettings() {
   cfg.repo   = cfg.repo   || 'B3B3097/VIBE-CODE';
   cfg.iters  = cfg.iters  || 3;
   cfg.maxtok = cfg.maxtok || 32768;
+  cfg.budget = cfg.budget || 0;
   document.getElementById('s-tok').value    = cfg.token;
   document.getElementById('s-repo').value   = cfg.repo;
   document.getElementById('s-iters').value  = cfg.iters;
   document.getElementById('s-maxtok').value = cfg.maxtok;
   document.getElementById('q-iters').value  = cfg.iters;
+  const budgetSel = document.getElementById('q-budget');
+  if (budgetSel) budgetSel.value = String(cfg.budget || 0);
   loadHistory();
 }
 function saveSettings() {
@@ -305,6 +320,7 @@ function saveSettings() {
   cfg.repo   = document.getElementById('s-repo').value.trim();
   cfg.iters  = +document.getElementById('s-iters').value;
   cfg.maxtok = +document.getElementById('s-maxtok').value;
+  cfg.budget = +(document.getElementById('q-budget')?.value || 0);
   localStorage.setItem('vc2-cfg', JSON.stringify(cfg));
   closeDrawer();
 }
@@ -350,8 +366,8 @@ function onFileSelected(input) {
 }
 
 function readFile(file) {
-  const MAX = 200 * 1024;
-  if (file.size > MAX) { alert(`Файл слишком большой (${(file.size/1024).toFixed(0)} КБ). Максимум 200 КБ.`); return; }
+  const MAX = 1024 * 1024;  // 1 MB
+  if (file.size > MAX) { alert(`Файл слишком большой (${(file.size/1024/1024).toFixed(1)} МБ). Максимум 1 МБ.`); return; }
 
   const reader = new FileReader();
   reader.onload = e => {
@@ -405,7 +421,7 @@ async function ghFetch(path, opts = {}) {
   return data;
 }
 
-async function triggerWorkflow(prompt, sessionId, iters, maxTok, fileName, fileContentB64) {
+async function triggerWorkflow(prompt, sessionId, iters, maxTok, fileName, fileContentB64, totalBudget) {
   await ghFetch(`/repos/${cfg.repo}/actions/workflows/generate.yml/dispatches`, {
     method: 'POST',
     body: JSON.stringify({
@@ -415,6 +431,7 @@ async function triggerWorkflow(prompt, sessionId, iters, maxTok, fileName, fileC
         session_id:   sessionId,
         max_iters:    String(iters),
         max_tokens:   String(maxTok),
+        total_budget: String(totalBudget || 0),
         file_name:    fileName    || '',
         file_content: fileContentB64 || '',
       },
@@ -538,8 +555,9 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function generate() {
   const prompt  = document.getElementById('prompt').value.trim();
-  const iters   = +document.getElementById('q-iters').value  || cfg.iters;
-  const maxTok  = +document.getElementById('q-maxtok').value || cfg.maxtok;
+  const iters      = +document.getElementById('q-iters').value  || cfg.iters;
+  const maxTok     = +document.getElementById('q-maxtok').value || cfg.maxtok;
+  const totalBudget = +(document.getElementById('q-budget')?.value || cfg.budget || 0);
   const isImprove = currentMode === 'improve';
 
   // Validation
@@ -557,8 +575,8 @@ async function generate() {
     bytes.forEach(b => binary += String.fromCharCode(b));
     fileContentB64 = btoa(binary);
     // max ~100KB of base64 (~75KB raw) — GitHub inputs have no doc'd limit but we warn
-    if (fileContentB64.length > 120000) {
-      alert('Файл слишком большой для передачи через workflow input (> ~90 КБ). Сократите файл.'); return;
+    if (fileContentB64.length > 1400000) {
+      alert('Файл слишком большой для передачи через workflow input (> ~1 МБ). Сократите файл.'); return;
     }
   }
 
@@ -579,10 +597,11 @@ async function generate() {
   document.getElementById('actions-link').style.display = 'none';
 
   const modeLabel = isImprove ? `🔧 Улучшение: ${fileNameArg}` : '✨ Генерация';
-  setStatus(`🚀 Запуск workflow...`, modeLabel, 5);
+  const budgetLabel = totalBudget > 0 ? `  💰 Общий бюджет: ${(totalBudget/1000).toFixed(0)}K токенов` : '';
+  setStatus(`🚀 Запуск workflow...`, modeLabel + budgetLabel, 5);
 
   try {
-    await triggerWorkflow(finalPrompt, session, iters, maxTok, fileNameArg, fileContentB64);
+    await triggerWorkflow(finalPrompt, session, iters, maxTok, fileNameArg, fileContentB64, totalBudget);
     setStatus('⏳ Ожидание runner...', 'GitHub Actions runner стартует', 10,
       `[${new Date().toLocaleTimeString()}] Workflow запущен (${isImprove ? 'improve' : 'generate'} mode)`);
   } catch(e) {
