@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VIBE CODE — Local AI Code Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js" defer></script>
@@ -107,6 +108,9 @@ header .spacer{flex:1}
 .result-links{margin-top:10px;display:flex;gap:12px;flex-wrap:wrap}
 .result-links a{color:var(--accent);font-size:12px;text-decoration:none}
 .result-links a:hover{text-decoration:underline}
+.zip-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 13px;border-radius:6px;cursor:pointer;font-size:12px;display:inline-flex;align-items:center;gap:5px;transition:.15s}
+.zip-btn:hover{border-color:var(--accent);color:var(--accent)}
+.zip-btn:disabled{opacity:.4;cursor:not-allowed}
 .files-grid{display:grid;gap:12px;margin-top:16px}
 .file-block{background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden}
 .file-hdr{padding:8px 14px;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--bg2)}
@@ -498,7 +502,10 @@ async function renderResult(progress) {
   document.getElementById('result-folder').textContent = progress.folder + '/';
 
   const ghUrl = `https://github.com/${cfg.repo}/tree/main/${progress.folder}`;
-  document.getElementById('result-links').innerHTML = `<a href="${esc(ghUrl)}" target="_blank">📁 Открыть в GitHub →</a>`;
+  const zipBtnId = 'zip-btn-' + Date.now();
+  document.getElementById('result-links').innerHTML =
+    `<a href="${esc(ghUrl)}" target="_blank">📁 Открыть в GitHub →</a>
+     <button class="zip-btn" id="${zipBtnId}" onclick="downloadZip('${esc(progress.folder)}', ${JSON.stringify(progress.files || [])}, this)">⬇️ Скачать ZIP</button>`;
   showCard('result-card', true);
 }
 
@@ -560,7 +567,19 @@ async function openHistFolder(folder) {
   const progress = JSON.parse(raw);
   await renderResult(progress);
   const files = await listFolder(folder);
-  if (files.length) await loadFiles(folder, files);
+  if (files.length) {
+    await loadFiles(folder, files);
+    // Re-inject ZIP button with real file list
+    const zipBtnId = 'zip-hist-' + Date.now();
+    const rl = document.getElementById('result-links');
+    if (rl && !rl.querySelector('.zip-btn')) {
+      const zbtn = document.createElement('button');
+      zbtn.className = 'zip-btn'; zbtn.id = zipBtnId;
+      zbtn.textContent = '⬇️ Скачать ZIP';
+      zbtn.onclick = function() { downloadZip(folder, files.map(f=>f.name).filter(n=>!n.startsWith('_')), this); };
+      rl.appendChild(zbtn);
+    }
+  }
   document.getElementById('result-card').scrollIntoView({ behavior: 'smooth' });
 }
 
@@ -702,6 +721,48 @@ async function generate() {
     }
     document.getElementById('gen-btn').disabled = false;
   }, TICK);
+}
+
+// ── ZIP Download ──────────────────────────────────────────────────────────────
+async function downloadZip(folder, fileList, btn) {
+  if (!fileList || !fileList.length) {
+    // Fallback: list folder from GitHub API
+    const items = await listFolder(folder);
+    fileList = items.map(f => f.name).filter(n => !n.startsWith('_'));
+  }
+  if (!fileList.length) { alert('Нет файлов для скачивания'); return; }
+
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Создаю ZIP...';
+
+  try {
+    const zip = new JSZip();
+    const folderName = folder.split('/').pop() || 'vibecode';
+    const root = zip.folder(folderName);
+
+    for (const name of fileList) {
+      btn.textContent = `⏳ ${name}`;
+      const content = await getRepoFile(`${folder}/${name}`);
+      if (content !== null) root.file(name, content);
+    }
+
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${folderName}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
+
+    btn.textContent = '✅ Скачано!';
+    setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 2500);
+  } catch(e) {
+    btn.textContent = '❌ Ошибка';
+    console.error('ZIP error:', e);
+    setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 2000);
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
