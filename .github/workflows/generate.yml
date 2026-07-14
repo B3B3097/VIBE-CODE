@@ -25,7 +25,7 @@ on:
         default: ''
         type: string
       file_content:
-        description: 'Attached file content base64-encoded (empty = generate mode)'
+        description: 'Attached file content base64-encoded'
         default: ''
         type: string
 
@@ -49,32 +49,47 @@ jobs:
         with:
           path: ~/.ollama
           key: ollama-qwen25-coder-7b-q4
+          restore-keys: |
+            ollama-qwen25-coder-7b-
 
-      - name: Install Ollama and start server
+      - name: Install Ollama
         run: |
           curl -fsSL https://ollama.ai/install.sh | sh
           nohup ollama serve > /tmp/ollama.log 2>&1 &
-          sleep 12
+          # Wait until server responds
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:11434/api/tags > /dev/null 2>&1 && break
+            sleep 2
+          done
+          echo "Ollama server ready"
 
-      - name: Pull model (or load from cache)
+      - name: Load model from cache (if available)
+        if: steps.ollama-cache.outputs.cache-hit == 'true'
         run: |
-          if [ "${{ steps.ollama-cache.outputs.cache-hit }}" = "true" ]; then
-            echo "Model restored from cache"
-          else
-            echo "First run: downloading Qwen2.5-Coder-7B (~4.7 GB)..."
-          fi
+          echo "✅ Cache hit — model already in ~/.ollama"
+          ollama list
+          # Warm up: load model into RAM
+          echo "Warming up model..."
+          echo "say hi" | timeout 60 ollama run qwen2.5-coder:7b || true
+
+      - name: Download model (first run only)
+        if: steps.ollama-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "📥 First run — downloading Qwen2.5-Coder-7B (~4.7 GB)..."
+          echo "This takes 5-10 min and will be cached for all future runs."
           ollama pull qwen2.5-coder:7b
+          ollama list
 
       - name: System info
         run: |
           echo "=== Runner ==="
-          echo "CPU : $(nproc) cores"
+          echo "CPU : $(nproc) cores  $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)"
           echo "RAM : $(free -h | awk '/^Mem/{print $2}')"
           echo "Disk: $(df -h . | awk 'NR==2{print $4}') available"
           echo "Mode: ${{ inputs.file_name != '' && 'IMPROVE' || 'GENERATE' }}"
-          ollama list
+          echo "Tokens budget: ${{ inputs.max_tokens }}"
 
-      - name: Run VIBE-CODE
+      - name: Run VIBE-CODE generator
         env:
           PROMPT:       ${{ inputs.prompt }}
           SESSION_ID:   ${{ inputs.session_id }}
@@ -95,7 +110,7 @@ jobs:
             echo "Nothing to commit"
           else
             MODE="${{ inputs.file_name != '' && 'improve' || 'generate' }}"
-            SLUG=$(echo "${{ inputs.prompt }}${{ inputs.file_name }}" | cut -c1-55)
+            SLUG=$(printf '%s%s' "${{ inputs.file_name }}" "${{ inputs.prompt }}" | cut -c1-55)
             git commit -m "feat(vibe/${MODE}): ${SLUG}"
             git push
           fi
