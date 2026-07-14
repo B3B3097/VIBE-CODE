@@ -151,6 +151,14 @@ header .spacer{flex:1}
     <input type="text" id="s-repo" placeholder="B3B3097/VIBE-CODE" />
   </div>
   <div class="field">
+    <label>Target Repo (анализ + коммит)</label>
+    <input type="text" id="s-target-repo" placeholder="owner/repo  (пусто = этот репо)" />
+    <div class="hint">
+      Если указать другой репо — AI изучит его код, добавит изменения и закоммитит.<br>
+      Токен должен иметь доступ write к этому репо.
+    </div>
+  </div>
+  <div class="field">
     <label>Итерации по умолчанию</label>
     <input type="number" id="s-iters" value="3" min="1" max="10" />
   </div>
@@ -305,12 +313,15 @@ function loadSettings() {
   cfg.repo   = cfg.repo   || 'B3B3097/VIBE-CODE';
   cfg.iters  = cfg.iters  || 3;
   cfg.maxtok = cfg.maxtok || 32768;
-  cfg.budget = cfg.budget || 0;
+  cfg.budget     = cfg.budget     || 0;
+  cfg.targetRepo = cfg.targetRepo || '';
   document.getElementById('s-tok').value    = cfg.token;
   document.getElementById('s-repo').value   = cfg.repo;
   document.getElementById('s-iters').value  = cfg.iters;
   document.getElementById('s-maxtok').value = cfg.maxtok;
   document.getElementById('q-iters').value  = cfg.iters;
+  const trEl = document.getElementById('s-target-repo');
+  if (trEl) trEl.value = cfg.targetRepo || '';
   const budgetSel = document.getElementById('q-budget');
   if (budgetSel) budgetSel.value = String(cfg.budget || 0);
   loadHistory();
@@ -320,7 +331,8 @@ function saveSettings() {
   cfg.repo   = document.getElementById('s-repo').value.trim();
   cfg.iters  = +document.getElementById('s-iters').value;
   cfg.maxtok = +document.getElementById('s-maxtok').value;
-  cfg.budget = +(document.getElementById('q-budget')?.value || 0);
+  cfg.budget     = +(document.getElementById('q-budget')?.value || 0);
+  cfg.targetRepo = (document.getElementById('s-target-repo')?.value || '').trim();
   localStorage.setItem('vc2-cfg', JSON.stringify(cfg));
   closeDrawer();
 }
@@ -421,7 +433,7 @@ async function ghFetch(path, opts = {}) {
   return data;
 }
 
-async function triggerWorkflow(prompt, sessionId, iters, maxTok, fileName, fileContentB64, totalBudget) {
+async function triggerWorkflow(prompt, sessionId, iters, maxTok, fileName, fileContentB64, totalBudget, targetRepo) {
   await ghFetch(`/repos/${cfg.repo}/actions/workflows/generate.yml/dispatches`, {
     method: 'POST',
     body: JSON.stringify({
@@ -432,6 +444,7 @@ async function triggerWorkflow(prompt, sessionId, iters, maxTok, fileName, fileC
         max_iters:    String(iters),
         max_tokens:   String(maxTok),
         total_budget: String(totalBudget || 0),
+        target_repo:  targetRepo || '',
         file_name:    fileName    || '',
         file_content: fileContentB64 || '',
       },
@@ -479,8 +492,9 @@ function esc(s) {
 async function renderResult(progress) {
   document.getElementById('result-icon').textContent   = progress.mode === 'improve' ? '🔧' : '✅';
   document.getElementById('result-title').textContent  = progress.mode === 'improve' ? 'Файл улучшен!' : 'Код сгенерирован!';
+  const toks = progress.tokensUsed > 0 ? `  · ${(progress.tokensUsed/1000).toFixed(1)}K токенов` : '';
   document.getElementById('result-sub').textContent    =
-    `${progress.files.length} файл(ов) · ${new Date().toLocaleString('ru')}`;
+    `${progress.files.length} файл(ов) · ${new Date().toLocaleString('ru')}${toks}`;
   document.getElementById('result-folder').textContent = progress.folder + '/';
 
   const ghUrl = `https://github.com/${cfg.repo}/tree/main/${progress.folder}`;
@@ -521,9 +535,9 @@ function copyBlock(btn) {
 }
 
 // ── History ────────────────────────────────────────────────────────────────────
-function addHistory(prompt, folder, runUrl, mode, fileName) {
+function addHistory(prompt, folder, runUrl, mode, fileName, tokensUsed) {
   const h = JSON.parse(localStorage.getItem('vc2-history') || '[]');
-  h.unshift({ prompt, folder, runUrl, mode, fileName, date: new Date().toISOString() });
+  h.unshift({ prompt, folder, runUrl, mode, fileName, date: new Date().toISOString(), tokensUsed: tokensUsed || 0 });
   localStorage.setItem('vc2-history', JSON.stringify(h.slice(0, 20)));
   loadHistory();
 }
@@ -536,7 +550,7 @@ function loadHistory() {
       <div class="hist-mode">${item.mode === 'improve' ? '🔧' : '✨'}</div>
       <div class="hist-body">
         <div class="hist-prompt">${esc((item.mode==='improve' ? '📄 '+item.fileName+' — ' : '') + (item.prompt || '(без описания)'))}</div>
-        <div class="hist-meta">${new Date(item.date).toLocaleString('ru')} · <a href="${esc(item.runUrl||'#')}" target="_blank" onclick="event.stopPropagation()">Actions</a></div>
+        <div class="hist-meta">${new Date(item.date).toLocaleString('ru')} · <a href="${esc(item.runUrl||'#')}" target="_blank" onclick="event.stopPropagation()">Actions</a>${item.tokensUsed > 0 ? ` · <span style="color:var(--purple)">${(item.tokensUsed/1000).toFixed(1)}K токенов</span>` : ''}</div>
       </div>
     </div>`).join('');
 }
@@ -558,6 +572,7 @@ async function generate() {
   const iters      = +document.getElementById('q-iters').value  || cfg.iters;
   const maxTok     = +document.getElementById('q-maxtok').value || cfg.maxtok;
   const totalBudget = +(document.getElementById('q-budget')?.value || cfg.budget || 0);
+  const targetRepo  = cfg.targetRepo || '';
   const isImprove = currentMode === 'improve';
 
   // Validation
@@ -597,11 +612,12 @@ async function generate() {
   document.getElementById('actions-link').style.display = 'none';
 
   const modeLabel = isImprove ? `🔧 Улучшение: ${fileNameArg}` : '✨ Генерация';
-  const budgetLabel = totalBudget > 0 ? `  💰 Общий бюджет: ${(totalBudget/1000).toFixed(0)}K токенов` : '';
-  setStatus(`🚀 Запуск workflow...`, modeLabel + budgetLabel, 5);
+  const budgetLabel = totalBudget > 0 ? `  💰 ${(totalBudget/1000).toFixed(0)}K токенов` : '';
+  const repoLabel   = targetRepo ? `  🔀 → ${targetRepo}` : '';
+  setStatus(`🚀 Запуск workflow...`, modeLabel + budgetLabel + repoLabel, 5);
 
   try {
-    await triggerWorkflow(finalPrompt, session, iters, maxTok, fileNameArg, fileContentB64, totalBudget);
+    await triggerWorkflow(finalPrompt, session, iters, maxTok, fileNameArg, fileContentB64, totalBudget, targetRepo);
     setStatus('⏳ Ожидание runner...', 'GitHub Actions runner стартует', 10,
       `[${new Date().toLocaleTimeString()}] Workflow запущен (${isImprove ? 'improve' : 'generate'} mode)`);
   } catch(e) {
@@ -673,7 +689,8 @@ async function generate() {
         await renderResult(progress);
         const files = await listFolder(folder);
         if (files.length) await loadFiles(folder, files);
-        addHistory(finalPrompt, folder, runUrl, currentMode, fileNameArg);
+        const toksUsed = progress?.tokensUsed || 0;
+        addHistory(finalPrompt, folder, runUrl, currentMode, fileNameArg, toksUsed);
         document.getElementById('prog').style.width = '100%';
         document.getElementById('result-card').scrollIntoView({ behavior: 'smooth' });
       } else {
