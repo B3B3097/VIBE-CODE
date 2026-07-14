@@ -4,6 +4,10 @@ VIBE-CODE local model runner.
 Modes:
   - GENERATE: create code from scratch (multi-file)
   - IMPROVE:  analyse existing file, return improved single file
+
+Token budget modes:
+  - MAX_TOKENS per iteration + MAX_ITERS (classic)
+  - TOTAL_BUDGET: run until cumulative tokens >= budget (ignores MAX_ITERS)
 """
 import os, sys, json, subprocess, re, time, urllib.request, base64
 from datetime import datetime
@@ -12,19 +16,22 @@ MODEL_NAME   = "qwen2.5-coder:7b"
 PROMPT       = os.environ.get("PROMPT", "")
 SESSION_ID   = os.environ.get("SESSION_ID", datetime.now().strftime("%Y%m%d%H%M%S"))
 MAX_ITERS    = int(os.environ.get("MAX_ITERS", "3"))
-MAX_TOKENS   = int(os.environ.get("MAX_TOKENS", "32768"))
+MAX_TOKENS   = int(os.environ.get("MAX_TOKENS", "8192"))
+TOTAL_BUDGET = int(os.environ.get("TOTAL_BUDGET", "0"))   # 0 = use MAX_ITERS mode
 FILE_NAME    = os.environ.get("FILE_NAME", "").strip()
 FILE_CONTENT_B64 = os.environ.get("FILE_CONTENT", "").strip()
 OLLAMA_HOST  = "http://127.0.0.1:11434"
 
-# num_ctx must be LARGER than num_predict to leave room for the input tokens
-# Input (system + user + history) can easily be 4-8K tokens
-CTX_BUDGET   = MAX_TOKENS + 8192
+# num_ctx must be LARGER than num_predict to leave room for input tokens
+CTX_BUFFER   = 8192
+CTX_BUDGET   = MAX_TOKENS + CTX_BUFFER
+
+# If TOTAL_BUDGET set, allow up to 200 iterations
+EFFECTIVE_MAX_ITERS = 200 if TOTAL_BUDGET > 0 else MAX_ITERS
 
 CHARS_PER_TOKEN = 3.5
 SHORT_THRESHOLD = 0.40
 
-# Refusal patterns — if model returns one of these, we rephrase
 REFUSAL_PATTERNS = [
     r"i (cannot|can't|am unable|won't|will not|don't)",
     r"(sorry|apolog|unfortunately).{0,60}(cannot|can't|help|assist)",
@@ -44,7 +51,7 @@ MODE = "improve" if ATTACHED_CONTENT else "generate"
 
 # ── System prompts ─────────────────────────────────────────────────────────────
 
-SYSTEM_GENERATE = f"""You are an elite software engineer. Token budget: {MAX_TOKENS}.
+SYSTEM_GENERATE = f"""You are an elite software engineer.
 
 RULES:
 1. Write COMPLETE, immediately runnable, production-grade code. No placeholders. No "TODO".
@@ -57,10 +64,10 @@ RULES:
 4. Each function must have a docstring.
 5. Handle ALL possible errors (file not found, network failure, bad input).
 6. Add input validation everywhere user data enters.
-7. Use your FULL token budget — write comprehensive, detailed code.
+7. Use your FULL token budget — write comprehensive, detailed, production-quality code.
 """
 
-SYSTEM_IMPROVE = f"""You are an expert code reviewer. Token budget: {MAX_TOKENS}.
+SYSTEM_IMPROVE = f"""You are an expert code reviewer and senior engineer.
 
 Given an existing file:
 1. Read EVERY line carefully.
@@ -73,7 +80,7 @@ Given an existing file:
    - Add input validation
    - Improve variable names and code clarity
 4. Return ONE complete code block — the full improved file.
-5. After the code block, add a ## Changes section.
+5. After the code block, add a ## Changes section listing every improvement.
 """
 
 
@@ -92,13 +99,14 @@ def ollama_ready(timeout=90):
 def call_model(messages, max_tokens=None):
     """Call Ollama /api/chat. Returns (text, tokens_used)."""
     n = max_tokens or MAX_TOKENS
+    ctx = n + CTX_BUFFER
     body = json.dumps({
         "model":   MODEL_NAME,
         "messages": messages,
         "stream":  False,
         "options": {
             "num_predict": n,
-            "num_ctx":     CTX_BUDGET,   # larger than num_predict to fit input
+            "num_ctx":     ctx,
             "temperature": 0.25,
             "top_p":       0.92,
             "repeat_penalty": 1.05,
@@ -118,7 +126,6 @@ def call_model(messages, max_tokens=None):
 
 
 def is_refusal(text):
-    """Return True if the model response looks like a refusal."""
     t = text.lower().strip()
     for pat in REFUSAL_PATTERNS:
         if re.search(pat, t):
@@ -126,12 +133,24 @@ def is_refusal(text):
     return False
 
 
-def is_short(text, used_tokens):
-    """Return True if model used less than SHORT_THRESHOLD of its budget."""
-    budget    = MAX_TOKENS
+def budget_remaining(total_used):
+    """Tokens left in total budget. Returns MAX_TOKENS if budget mode off."""
+    if TOTAL_BUDGET <= 0:
+        return MAX_TOKENS
+    return max(0, TOTAL_BUDGET - total_used)
+
+
+def budget_exhausted(total_used):
+    """True if total budget is set and used up."""
+    return TOTAL_BUDGET > 0 and total_used >= TOTAL_BUDGET
+
+
+def is_short(text, used_tokens, iter_budget=None):
+    budget    = iter_budget or MAX_TOKENS
     threshold = int(budget * SHORT_THRESHOLD)
     short     = used_tokens < threshold
-    print(f"   Token budget: {used_tokens}/{budget}  ({used_tokens/budget*100:.1f}%)  "
+    pct       = used_tokens / budget * 100 if budget else 0
+    print(f"   Token budget: {used_tokens}/{budget}  ({pct:.1f}%)  "
           f"{'SHORT — will expand' if short else 'OK'}")
     return short
 
@@ -172,7 +191,9 @@ def parse_single(text, fallback_name):
     m = re.search(pattern, text, re.DOTALL)
     if not m:
         return None
-    lang, name, content = m.group(1).lower() or "text", m.group(2) or fallback_name, m.group(3).strip()
+    lang    = m.group(1).lower() or "text"
+    name    = m.group(2) or fallback_name
+    content = m.group(3).strip()
     return {"lang": lang, "name": name, "content": content} if content else None
 
 
@@ -259,9 +280,10 @@ def save_raw(text, n):
         f.write(text)
 
 
-def log_response(tag, raw, used, elapsed):
+def log_response(tag, raw, used, elapsed, total_used=0):
     preview = raw[:300].replace('\n', ' ')
-    print(f"[{tag}] Response preview: {preview!r}")
+    budget_info = f"  [total: {total_used:,} / {TOTAL_BUDGET:,}]" if TOTAL_BUDGET > 0 else ""
+    print(f"[{tag}] Response preview: {preview!r}{budget_info}")
     if is_refusal(raw):
         print(f"[{tag}] ⚠️  REFUSAL DETECTED — will rephrase prompt")
 
@@ -279,12 +301,13 @@ def run_improve():
         "Fix all bugs, improve error handling, add type hints, docstrings, and input validation."
     ext = FILE_NAME.rsplit(".", 1)[-1].lower() if "." in FILE_NAME else "txt"
 
+    budget_str = f"  Total budget: {TOTAL_BUDGET:,} tokens" if TOTAL_BUDGET > 0 else ""
     print(f"\n{'='*60}")
     print(f"🔧 VIBE-CODE — Improve Mode")
-    print(f"📄 File   : {FILE_NAME}  ({len(ATTACHED_CONTENT.splitlines())} lines)")
+    print(f"📄 File   : {FILE_NAME}  ({len(ATTACHED_CONTENT.splitlines())} lines, {len(ATTACHED_CONTENT):,} chars)")
     print(f"📝 Task   : {user_request[:100]}")
-    print(f"🤖 Model  : {MODEL_NAME}  Budget: {MAX_TOKENS} tokens  Ctx: {CTX_BUDGET}")
-    print(f"🔄 Iters  : {MAX_ITERS}")
+    print(f"🤖 Model  : {MODEL_NAME}  Per-iter: {MAX_TOKENS} tokens  Ctx: {MAX_TOKENS+CTX_BUFFER}{budget_str}")
+    print(f"🔄 Iters  : {'until budget' if TOTAL_BUDGET > 0 else MAX_ITERS}")
     print(f"{'='*60}\n")
 
     print("⏳ Waiting for Ollama...")
@@ -292,52 +315,71 @@ def run_improve():
         print("❌ Ollama not ready"); sys.exit(1)
     print("✅ Ollama ready\n")
 
+    # Truncate very large files to avoid blowing context
+    content_for_model = ATTACHED_CONTENT
+    if len(ATTACHED_CONTENT) > 60000:
+        content_for_model = ATTACHED_CONTENT[:60000]
+        print(f"⚠️  File truncated to 60K chars for model context (original: {len(ATTACHED_CONTENT):,} chars)")
+
     messages = [
         {"role": "system", "content": SYSTEM_IMPROVE},
         {"role": "user", "content":
             f"File: `{FILE_NAME}`\n\n"
-            f"```{ext}\n# {FILE_NAME}\n{ATTACHED_CONTENT}\n```\n\n"
+            f"```{ext}\n# {FILE_NAME}\n{content_for_model}\n```\n\n"
             f"Task: {user_request}\n\n"
             f"Return the complete improved file in ONE code block starting with `# {FILE_NAME}`."
         },
     ]
 
     write_progress(folder, "running", f"🔧 Analysing {FILE_NAME}...")
-    last_file = None
+    last_file  = None
+    total_used = 0
+    refusal_count = 0
 
-    for it in range(MAX_ITERS):
-        tag = f"ITER {it+1}/{MAX_ITERS}"
-        label = "🔍 Analysing and improving..." if it == 0 else "🔄 Expanding and polishing..."
-        print(f"\n[{tag}] {label}")
+    for it in range(EFFECTIVE_MAX_ITERS):
+        if budget_exhausted(total_used):
+            print(f"\n✅ Total budget {TOTAL_BUDGET:,} tokens exhausted after {it} iterations.")
+            break
+
+        iter_budget = min(MAX_TOKENS, budget_remaining(total_used)) if TOTAL_BUDGET > 0 else MAX_TOKENS
+        if iter_budget <= 0:
+            break
+
+        tag   = f"ITER {it+1}"
+        label = "🔍 Analysing and improving..." if it == 0 else "🔄 Polishing..."
+        print(f"\n[{tag}] {label}  (iter_budget={iter_budget:,})")
 
         t0 = time.time()
-        raw, used = call_model(messages)
+        raw, used = call_model(messages, max_tokens=iter_budget)
         dt = time.time() - t0
-        print(f"[{tag}] ✅ {len(raw):,} chars  {used:,} tokens  ({dt:.0f}s)")
+        total_used += used
+        print(f"[{tag}] ✅ {len(raw):,} chars  {used:,} tokens  ({dt:.0f}s)  total={total_used:,}")
         save_raw(raw, it + 1)
-        log_response(tag, raw, used, dt)
+        log_response(tag, raw, used, dt, total_used)
 
         file_obj = parse_single(raw, FILE_NAME)
 
         if is_refusal(raw):
+            refusal_count += 1
             messages = [
                 {"role": "system", "content": SYSTEM_IMPROVE},
                 {"role": "user", "content":
-                    f"Please review and improve this code file. Return the complete improved version.\n\n"
-                    f"```{ext}\n# {FILE_NAME}\n{ATTACHED_CONTENT[:3000]}\n```\n\n"
+                    f"Please review and improve this {ext} file. Return the complete improved version.\n\n"
+                    f"```{ext}\n# {FILE_NAME}\n{content_for_model[:3000]}\n```\n\n"
                     f"Fix bugs, add error handling, add docstrings. "
                     f"Return ONE complete code block with `# {FILE_NAME}` as first comment."
                 },
             ]
             write_progress(folder, "running", f"[{tag}] Rephrasing after refusal...")
+            if refusal_count >= 2:
+                break
             continue
 
-        if it == 0 and is_short(raw, used) and not file_obj:
+        if it == 0 and is_short(raw, used, iter_budget) and not file_obj:
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content":
-                f"Your response was too brief. Use your full {MAX_TOKENS}-token budget.\n"
-                f"Rewrite `{FILE_NAME}` COMPLETELY with detailed docstrings, error handling, type hints.\n"
-                f"Return the complete file in one code block."
+                f"Your response was too brief. Rewrite `{FILE_NAME}` COMPLETELY with detailed "
+                f"docstrings, error handling, type hints. Return the complete file in one code block."
             })
             continue
 
@@ -353,24 +395,28 @@ def run_improve():
         last_file = file_obj
         test_ok, test_out = test_single_file(file_obj, f"{workdir}_it{it}")
         print(f"[{tag}] {'✅' if test_ok else '❌'} Test: {test_out[:200]}")
-        write_progress(folder, "running", f"[{tag}]: {'✅ OK' if test_ok else '❌ fixing...'}")
+        write_progress(folder, "running", f"[{tag}]: {'✅ OK' if test_ok else '❌ fixing...'}  total={total_used:,}")
 
-        if test_ok:
-            if it < MAX_ITERS - 1 and is_short(raw, used):
-                messages.append({"role": "assistant", "content": raw})
+        if test_ok and not budget_exhausted(total_used):
+            messages.append({"role": "assistant", "content": raw})
+            remaining = budget_remaining(total_used)
+            if remaining > 2000:
                 messages.append({"role": "user", "content":
-                    f"Good — it works! But you only used {used}/{MAX_TOKENS} tokens.\n"
-                    f"Expand with comprehensive unit tests and more detailed docstrings.\n"
+                    f"Great — it works! You have ~{remaining:,} tokens left in the budget.\n"
+                    f"Use them to: expand docstrings with examples, add comprehensive unit tests, "
+                    f"improve error messages, add logging, add CLI argument parsing if missing.\n"
                     f"Return the COMPLETE expanded file."
                 })
             else:
                 break
-        else:
+        elif not test_ok:
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content":
                 f"Error during execution:\n```\n{test_out[:1000]}\n```\n\n"
                 f"Fix ALL issues. Return complete `{FILE_NAME}`."
             })
+        else:
+            break
 
     if last_file:
         changes_section = ""
@@ -394,6 +440,7 @@ def run_improve():
 |---|---|
 | **Original** | {len(orig_lines)} lines |
 | **Improved** | {len(new_lines)} lines ({delta_str}) |
+| **Tokens used** | {total_used:,} |
 | **Task** | {user_request} |
 
 {changes_section if changes_section else ""}
@@ -402,12 +449,13 @@ def run_improve():
             f.write(changes_md)
 
         write_progress(folder, "done",
-            f"✅ {last_file['name']} improved ({len(orig_lines)}→{len(new_lines)} lines, {delta_str})",
+            f"✅ {last_file['name']} improved ({len(orig_lines)}→{len(new_lines)} lines)  {total_used:,} tokens",
             files=[last_file["name"], "CHANGES.md"])
 
         print(f"\n✅ DONE!")
-        print(f"   File  : {out_path}")
-        print(f"   Lines : {len(orig_lines)} → {len(new_lines)} ({delta_str})")
+        print(f"   File   : {out_path}")
+        print(f"   Lines  : {len(orig_lines)} → {len(new_lines)} ({delta_str})")
+        print(f"   Tokens : {total_used:,} used")
     else:
         write_progress(folder, "error", "No improved file extracted")
         print("❌ No output"); sys.exit(1)
@@ -421,12 +469,13 @@ def run_generate():
     workdir = f"/tmp/vc_{SESSION_ID}"
     os.makedirs(folder, exist_ok=True)
 
+    budget_str = f"  Total budget: {TOTAL_BUDGET:,} tokens" if TOTAL_BUDGET > 0 else ""
     print(f"\n{'='*60}")
     print(f"🚀 VIBE-CODE — Generate Mode")
     print(f"📝 Prompt  : {PROMPT[:120]}")
-    print(f"🤖 Model   : {MODEL_NAME}  Budget: {MAX_TOKENS} tokens  Ctx: {CTX_BUDGET}")
+    print(f"🤖 Model   : {MODEL_NAME}  Per-iter: {MAX_TOKENS} tokens  Ctx: {MAX_TOKENS+CTX_BUFFER}{budget_str}")
     print(f"📁 Output  : {folder}/")
-    print(f"🔄 Iters   : {MAX_ITERS}")
+    print(f"🔄 Iters   : {'until budget exhausted' if TOTAL_BUDGET > 0 else MAX_ITERS}")
     print(f"{'='*60}\n")
 
     print("⏳ Waiting for Ollama...")
@@ -438,32 +487,40 @@ def run_generate():
         {"role": "system", "content": SYSTEM_GENERATE},
         {"role": "user",   "content": PROMPT},
     ]
-    last_files = []
+    last_files    = []
+    total_used    = 0
     refusal_count = 0
 
     write_progress(folder, "running", "🧠 Generating code...")
 
-    for it in range(MAX_ITERS):
-        tag   = f"ITER {it+1}/{MAX_ITERS}"
-        label = "🧠 Generating..." if it == 0 else "🔄 Iterating..."
-        print(f"\n[{tag}] {label}")
+    for it in range(EFFECTIVE_MAX_ITERS):
+        if budget_exhausted(total_used):
+            print(f"\n✅ Total budget {TOTAL_BUDGET:,} tokens exhausted after {it} iterations.")
+            break
+
+        iter_budget = min(MAX_TOKENS, budget_remaining(total_used)) if TOTAL_BUDGET > 0 else MAX_TOKENS
+        if iter_budget <= 0:
+            break
+
+        tag   = f"ITER {it+1}"
+        label = "🧠 Generating..." if it == 0 else "🔄 Expanding..."
+        print(f"\n[{tag}] {label}  (iter_budget={iter_budget:,}  remaining={budget_remaining(total_used):,})")
 
         t0 = time.time()
-        raw, used = call_model(messages)
+        raw, used = call_model(messages, max_tokens=iter_budget)
         dt = time.time() - t0
-        print(f"[{tag}] ✅ {len(raw):,} chars  {used:,} tokens  ({dt:.0f}s)")
+        total_used += used
+        print(f"[{tag}] ✅ {len(raw):,} chars  {used:,} tokens  ({dt:.0f}s)  total={total_used:,}")
         save_raw(raw, it + 1)
-        log_response(tag, raw, used, dt)
+        log_response(tag, raw, used, dt, total_used)
 
-        # Handle refusals by simplifying/rephrasing
         if is_refusal(raw):
             refusal_count += 1
-            print(f"[{tag}] ⚠️  Refusal #{refusal_count} — rephrasing prompt in English")
-            # Strip to a simple English version of the request
+            print(f"[{tag}] ⚠️  Refusal #{refusal_count} — rephrasing in English")
             simple = (
                 "Write a Python script that does the following:\n"
                 + PROMPT[:800]
-                + "\n\nProvide complete, working Python code."
+                + "\n\nProvide complete, working Python code with docstrings and error handling."
             )
             messages = [
                 {"role": "system", "content": SYSTEM_GENERATE},
@@ -478,16 +535,16 @@ def run_generate():
         files = parse_files(raw)
         print(f"[{tag}] 📄 {len(files)} file(s): {[f['name'] for f in files]}")
 
-        if it == 0 and is_short(raw, used) and len(files) < 2:
+        if it == 0 and is_short(raw, used, iter_budget) and len(files) < 2:
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content":
-                f"Your response only used {used}/{MAX_TOKENS} tokens. Use your FULL budget.\n\n"
+                f"Your response only used {used:,}/{iter_budget:,} tokens. Use your FULL budget.\n\n"
                 f"Rewrite the COMPLETE solution with:\n"
-                f"1. Full, detailed implementation — no shortcuts\n"
-                f"2. Every function with docstring (description, args, returns, example)\n"
-                f"3. Comprehensive error handling\n"
+                f"1. Full implementation — no shortcuts, no placeholders\n"
+                f"2. Every function with full docstring (description, args, returns, example)\n"
+                f"3. Comprehensive error handling for every operation\n"
                 f"4. Unit tests in test_main.py\n"
-                f"5. Detailed README.md\n"
+                f"5. Detailed README.md with examples\n"
                 f"6. requirements.txt\n\n"
                 f"Mark every file with `# filename.ext` as first comment."
             })
@@ -506,27 +563,23 @@ def run_generate():
         test_ok, test_out = test_code(files, f"{workdir}_it{it}")
         print(f"[{tag}] {'✅' if test_ok else '❌'} Test: {test_out[:250]}")
         write_progress(folder, "running",
-            f"[{tag}]: {'✅ tests pass' if test_ok else '❌ fixing...'}")
+            f"[{tag}]: {'✅ tests pass' if test_ok else '❌ fixing...'}  total={total_used:,}")
 
         if test_ok:
-            if it < MAX_ITERS - 1:
-                short = is_short(raw, used)
-                messages.append({"role": "assistant", "content": raw})
-                if short:
-                    messages.append({"role": "user", "content":
-                        f"Code works! But only {used}/{MAX_TOKENS} tokens used.\n"
-                        f"Expand with: comprehensive unit tests (test_main.py), "
-                        f"detailed README.md, enhanced error handling, CLI args. "
-                        f"Write COMPLETE files."
-                    })
-                else:
-                    messages.append({"role": "user", "content":
-                        "Code works! Final pass: strengthen error handling, improve docstrings, "
-                        "add any missing edge cases. Write COMPLETE files. "
-                        "If already excellent write CODE_IS_READY."
-                    })
-                    if "CODE_IS_READY" in raw[:80]:
-                        break
+            if budget_exhausted(total_used):
+                break
+            remaining = budget_remaining(total_used)
+            messages.append({"role": "assistant", "content": raw})
+            if remaining > 2000:
+                messages.append({"role": "user", "content":
+                    f"Code works! You have ~{remaining:,} tokens left in the budget.\n"
+                    f"Use them for: comprehensive unit tests (test_main.py with 15+ test cases), "
+                    f"detailed README.md with usage examples, enhanced error handling, "
+                    f"edge case handling, type hints on every function. Write COMPLETE files.\n"
+                    f"If the code is already excellent, write CODE_IS_READY."
+                })
+                if "CODE_IS_READY" in raw[:80]:
+                    break
             else:
                 break
         else:
@@ -559,6 +612,7 @@ def run_generate():
 |---|---|
 | **Prompt** | {PROMPT[:200]} |
 | **Model** | {MODEL_NAME} |
+| **Tokens used** | {total_used:,} |
 | **Date** | {datetime.now().strftime('%Y-%m-%d %H:%M UTC')} |
 
 ## Files
@@ -574,11 +628,12 @@ def run_generate():
             last_files.append({"name": "README.md"})
 
         write_progress(folder, "done",
-            f"✅ {len(last_files)} file(s) generated",
+            f"✅ {len(last_files)} file(s) generated  {total_used:,} tokens used",
             files=[f["name"] for f in last_files])
 
         print(f"\n✅ DONE!  Output: {folder}/")
-        print(f"   Files : {[f['name'] for f in last_files]}")
+        print(f"   Files  : {[f['name'] for f in last_files]}")
+        print(f"   Tokens : {total_used:,} used")
     else:
         write_progress(folder, "error", "No code blocks found in any iteration")
         print("❌ No code generated"); sys.exit(1)
@@ -587,6 +642,9 @@ def run_generate():
 # ── Entry ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    if TOTAL_BUDGET > 0:
+        print(f"💰 Total budget mode: {TOTAL_BUDGET:,} tokens  ({TOTAL_BUDGET // MAX_TOKENS} iterations @ {MAX_TOKENS} tokens/iter)")
+
     if not PROMPT and not ATTACHED_CONTENT:
         print("ERROR: PROMPT or FILE_CONTENT required"); sys.exit(1)
     if MODE == "improve":
