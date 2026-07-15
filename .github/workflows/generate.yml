@@ -32,6 +32,10 @@ on:
         description: 'Total token budget across all iterations (0 = use max_iters mode)'
         default: '0'
         type: string
+      target_repo:
+        description: 'Target repo to analyze and commit to (owner/repo, empty = this repo)'
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -84,6 +88,46 @@ jobs:
           ollama pull qwen2.5-coder:7b
           ollama list
 
+      - name: Analyze target repo
+        if: inputs.target_repo != ''
+        env:
+          TARGET_REPO: ${{ inputs.target_repo }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔍 Cloning ${TARGET_REPO}..."
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git" /tmp/target-repo 2>&1 || {
+            echo "❌ Cannot clone ${TARGET_REPO} — check GITHUB_TOKEN read access"; exit 1
+          }
+          echo "✅ Cloned ${TARGET_REPO}"
+          python3 - << 'INNEREOF'
+import os, json, base64
+R = "/tmp/target-repo"; F = {}; T = 0; MAX = 80000
+PRIORITY = ["README.md", "main.py", "app.py", "index.js", "index.ts", "package.json"]
+EXT  = {".py", ".js", ".ts", ".html", ".md", ".json", ".yml", ".sh", ".go", ".rs"}
+SKIP = {"node_modules", "__pycache__", ".git", "dist", "build", "venv", ".venv"}
+def add(rel, full):
+    global T
+    if T >= MAX: return
+    try:
+        c = open(full, "r", encoding="utf-8", errors="ignore").read()
+        if T + len(c) > MAX: c = c[:MAX - T]
+        F[rel] = c; T += len(c); print(f"  + {rel} ({len(c):,} chars)")
+    except: pass
+for n in PRIORITY:
+    p = os.path.join(R, n)
+    if os.path.exists(p): add(n, p)
+for root, dirs, fns in os.walk(R):
+    dirs[:] = [d for d in dirs if d not in SKIP and not d.startswith(".")]
+    for fn in sorted(fns):
+        if T >= MAX: break
+        if os.path.splitext(fn)[1].lower() in EXT:
+            full = os.path.join(root, fn); rel = os.path.relpath(full, R)
+            if rel not in F: add(rel, full)
+ctx = {"repo": os.environ["TARGET_REPO"], "files": F, "totalChars": T}
+open("/tmp/repo_context.b64", "w").write(base64.b64encode(json.dumps(ctx).encode()).decode())
+print(f"✅ Saved {len(F)} files, {T:,} chars → /tmp/repo_context.b64")
+INNEREOF
+
       - name: System info
         run: |
           echo "=== Runner ==="
@@ -100,11 +144,34 @@ jobs:
           MAX_ITERS:     ${{ inputs.max_iters }}
           MAX_TOKENS:    ${{ inputs.max_tokens }}
           TOTAL_BUDGET:  ${{ inputs.total_budget }}
+          TARGET_REPO:   ${{ inputs.target_repo }}
           FILE_NAME:     ${{ inputs.file_name }}
           FILE_CONTENT:  ${{ inputs.file_content }}
         run: |
           mkdir -p output
           python3 generate.py
+
+      - name: Commit to target repo
+        if: inputs.target_repo != '' && success()
+        env:
+          TARGET_REPO: ${{ inputs.target_repo }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FOLDER=$(ls -t output/ | head -1)
+          echo "📦 Committing output/${FOLDER} → ${TARGET_REPO}"
+          cd /tmp/target-repo
+          mkdir -p vibecode && cp -r "$GITHUB_WORKSPACE/output/${FOLDER}"/* vibecode/ 2>/dev/null || true
+          git config user.name  "VIBE-CODE Bot"
+          git config user.email "vibecode-bot@users.noreply.github.com"
+          git add -A
+          if ! git diff --staged --quiet; then
+            SLUG=$(printf '%s' "${{ inputs.prompt }}" | cut -c1-55)
+            git commit -m "feat(vibecode): ${SLUG}"
+            git push "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git" HEAD \
+              || echo "⚠️  Push failed — check token has write access to ${TARGET_REPO}"
+          else
+            echo "Nothing to commit to ${TARGET_REPO}"
+          fi
 
       - name: Commit and push results
         run: |
