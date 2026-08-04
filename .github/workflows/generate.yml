@@ -1,153 +1,278 @@
-name: AI Code Generator (Local Model)
+name: VIBE-CODE v2 — Multi-Agent Platform
 
 on:
   workflow_dispatch:
     inputs:
       prompt:
-        description: 'What to build / how to improve'
-        required: false
-        default: ''
-        type: string
-      session_id:
-        description: 'Session ID'
+        description: 'What to build / fix / improve'
         required: true
-        type: string
-      max_iters:
-        description: 'Max iterations (test+fix loops)'
-        default: '3'
-        type: string
-      max_tokens:
-        description: 'Max tokens per model response'
-        default: '32768'
-        type: string
+        default: ''
       file_name:
-        description: 'Attached filename (empty = generate mode)'
-        default: ''
-        type: string
-      file_content:
-        description: 'Attached file content base64-encoded'
-        default: ''
-        type: string
-      total_budget:
-        description: 'Total token budget across all iterations (0 = use max_iters mode)'
-        default: '0'
-        type: string
+        description: 'Output filename (e.g. main.py)'
+        default: 'output.py'
+      mode:
+        description: 'generate | improve'
+        default: 'generate'
+        type: choice
+        options: [generate, improve]
+      agent_mode:
+        description: 'Agent mode: single | multi'
+        default: 'single'
+        type: choice
+        options: [single, multi]
       target_repo:
-        description: 'Target repo to analyze and commit to (owner/repo, empty = this repo)'
+        description: 'Target repo to read context from / commit to (owner/repo, empty = skip)'
         default: ''
-        type: string
+      auto_pr:
+        description: 'Create PR automatically when done'
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+      auto_notes:
+        description: 'Generate release notes'
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+      model_planner:
+        description: 'Planner model (Qwen 2.5)'
+        default: 'qwen2.5:7b'
+      model_coder:
+        description: 'Coder model (Bonsai 27B)'
+        default: 'bonsai-27b'
+      model_single:
+        description: 'Single-agent model'
+        default: 'qwen2.5-coder:7b'
+      max_tokens:
+        description: 'Max tokens per model call'
+        default: '4096'
+      iterations:
+        description: 'Iterations (single-agent mode)'
+        default: '1'
+      total_budget:
+        description: 'Total token budget (0 = auto)'
+        default: '0'
 
 permissions:
   contents: write
+  pull-requests: write
+  actions: write
+
+env:
+  OLLAMA_HOST: http://127.0.0.1:11434
+  OUTPUT_DIR: /tmp/vibe_output
 
 jobs:
   generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout repo
+      # ── Checkout ───────────────────────────────────────────────────────────────
+      - name: Checkout VIBE-CODE
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restore Ollama model cache (~4.7 GB)
-        id: ollama-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ollama
-          key: ollama-qwen25-coder-7b-q4
-          restore-keys: |
-            ollama-qwen25-coder-7b-
-
-      - name: Install Ollama
-        run: |
-          curl -fsSL https://ollama.ai/install.sh | sh
-          nohup ollama serve > /tmp/ollama.log 2>&1 &
-          for i in $(seq 1 30); do
-            curl -sf http://127.0.0.1:11434/api/tags > /dev/null 2>&1 && break
-            sleep 2
-          done
-          echo "Ollama server ready"
-
-      - name: Load model from cache (if available)
-        if: steps.ollama-cache.outputs.cache-hit == 'true'
-        run: |
-          echo "Cache hit — model already in ~/.ollama"
-          ollama list
-          echo "Write hello world in Python" | timeout 120 ollama run qwen2.5-coder:7b || true
-
-      - name: Download model (first run only)
-        if: steps.ollama-cache.outputs.cache-hit != 'true'
-        run: |
-          echo "First run — downloading Qwen2.5-Coder-7B (~4.7 GB)..."
-          ollama pull qwen2.5-coder:7b
-          ollama list
-
-      - name: Analyze target repo
-        if: inputs.target_repo != ''
-        env:
-          TARGET_REPO: ${{ inputs.target_repo }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Cloning ${TARGET_REPO}..."
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git" /tmp/target-repo 2>&1 || {
-            echo "Cannot clone ${TARGET_REPO} — check GITHUB_TOKEN read access"; exit 1
-          }
-          echo "Cloned OK"
-          python3 read_repo.py
-
+      # ── System info ────────────────────────────────────────────────────────────
       - name: System info
         run: |
           echo "CPU : $(nproc) cores  $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)"
           echo "RAM : $(free -h | awk '/^Mem/{print $2}')"
-          echo "Disk: $(df -h . | awk 'NR==2{print $4}') available"
-          echo "Mode: ${{ inputs.file_name != '' && 'IMPROVE' || 'GENERATE' }}"
+          echo "Mode: ${{ inputs.agent_mode }}"
+          echo "Repo: ${{ inputs.target_repo }}"
 
-      - name: Run VIBE-CODE generator
-        env:
-          PROMPT:        ${{ inputs.prompt }}
-          SESSION_ID:    ${{ inputs.session_id }}
-          MAX_ITERS:     ${{ inputs.max_iters }}
-          MAX_TOKENS:    ${{ inputs.max_tokens }}
-          TOTAL_BUDGET:  ${{ inputs.total_budget }}
-          TARGET_REPO:   ${{ inputs.target_repo }}
-          FILE_NAME:     ${{ inputs.file_name }}
-          FILE_CONTENT:  ${{ inputs.file_content }}
+      # ── Install Ollama ──────────────────────────────────────────────────────────
+      - name: Install Ollama
         run: |
-          mkdir -p output
-          python3 generate.py
+          curl -fsSL https://ollama.ai/install.sh | sh
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          echo "Waiting for Ollama to start…"
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:11434/api/tags > /dev/null 2>&1 && break
+            sleep 2
+          done
+          echo "Ollama ready"
 
-      - name: Commit to target repo
-        if: inputs.target_repo != '' && success()
+      # ── Cache: Single-agent model ───────────────────────────────────────────────
+      - name: Restore single-agent model cache
+        id: cache-single
+        if: inputs.agent_mode == 'single'
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-${{ inputs.model_single }}-v1
+          restore-keys: |
+            ollama-${{ inputs.model_single }}-
+
+      - name: Pull single-agent model
+        if: inputs.agent_mode == 'single' && steps.cache-single.outputs.cache-hit != 'true'
+        run: |
+          echo "Downloading ${{ inputs.model_single }}…"
+          ollama pull ${{ inputs.model_single }}
+          ollama list
+
+      - name: Warm up single-agent model (cache hit)
+        if: inputs.agent_mode == 'single' && steps.cache-single.outputs.cache-hit == 'true'
+        run: |
+          ollama list
+          echo "hi" | timeout 60 ollama run ${{ inputs.model_single }} || true
+
+      # ── Cache: Planner model (multi-agent) ─────────────────────────────────────
+      - name: Restore planner model cache
+        id: cache-planner
+        if: inputs.agent_mode == 'multi'
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-${{ inputs.model_planner }}-v1
+          restore-keys: |
+            ollama-${{ inputs.model_planner }}-
+
+      - name: Pull planner model
+        if: inputs.agent_mode == 'multi' && steps.cache-planner.outputs.cache-hit != 'true'
+        run: |
+          echo "Downloading planner: ${{ inputs.model_planner }}…"
+          ollama pull ${{ inputs.model_planner }}
+          ollama list
+
+      # ── Bonsai 27B setup (multi-agent coder) ───────────────────────────────────
+      - name: Restore Bonsai 27B GGUF cache
+        id: cache-bonsai
+        if: inputs.agent_mode == 'multi' && inputs.model_coder == 'bonsai-27b'
+        uses: actions/cache@v4
+        with:
+          path: /tmp/bonsai-gguf
+          key: bonsai-27b-q1-v1
+
+      - name: Download Bonsai 27B GGUF
+        if: inputs.agent_mode == 'multi' && inputs.model_coder == 'bonsai-27b' && steps.cache-bonsai.outputs.cache-hit != 'true'
+        run: |
+          pip install -q huggingface_hub
+          mkdir -p /tmp/bonsai-gguf
+          python3 -c "
+          from huggingface_hub import hf_hub_download
+          path = hf_hub_download(
+              repo_id='prism-ml/Bonsai-27B-gguf',
+              filename='Bonsai-27B-Q1_0.gguf',
+              local_dir='/tmp/bonsai-gguf'
+          )
+          print(f'Downloaded: {path}')
+          "
+          ls -lh /tmp/bonsai-gguf/
+
+      - name: Register Bonsai 27B in Ollama
+        if: inputs.agent_mode == 'multi' && inputs.model_coder == 'bonsai-27b'
+        run: |
+          cat > /tmp/bonsai-modelfile << 'EOF'
+          FROM /tmp/bonsai-gguf/Bonsai-27B-Q1_0.gguf
+          SYSTEM "You are an expert software engineer specializing in writing clean, production-ready code."
+          PARAMETER temperature 0.2
+          PARAMETER top_p 0.9
+          PARAMETER num_predict 4096
+          EOF
+          ollama create bonsai-27b -f /tmp/bonsai-modelfile
+          echo "Bonsai 27B registered"
+          ollama list
+
+      - name: Pull generic coder model (non-Bonsai multi-agent)
+        if: inputs.agent_mode == 'multi' && inputs.model_coder != 'bonsai-27b'
+        run: |
+          ollama pull ${{ inputs.model_coder }}
+
+      # ── Fetch target repo context ───────────────────────────────────────────────
+      - name: Fetch target repo context
+        if: inputs.target_repo != ''
         env:
-          TARGET_REPO: ${{ inputs.target_repo }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          FOLDER=$(ls -t output/ | head -1)
-          echo "Committing output/${FOLDER} to ${TARGET_REPO}"
-          cd /tmp/target-repo
-          mkdir -p vibecode && cp -r "$GITHUB_WORKSPACE/output/${FOLDER}"/* vibecode/ 2>/dev/null || true
-          git config user.name  "VIBE-CODE Bot"
-          git config user.email "vibecode-bot@users.noreply.github.com"
-          git add -A
-          if ! git diff --staged --quiet; then
-            SLUG=$(printf '%s' "${{ inputs.prompt }}" | cut -c1-55)
-            git commit -m "feat(vibecode): ${SLUG}"
-            git push "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git" HEAD \
-              || echo "Push failed — check token write access to ${TARGET_REPO}"
+          echo "Reading repo context: ${{ inputs.target_repo }}"
+          python3 read_repo.py "${{ inputs.target_repo }}" "$GH_TOKEN" 60000 > /tmp/repo_context_raw.txt 2>&1 || true
+          if [ -f /tmp/repo_context.b64 ]; then
+            SIZE=$(wc -c < /tmp/repo_context.b64)
+            echo "Repo context: ${SIZE} bytes (base64)"
+          else
+            echo "No repo context loaded"
           fi
 
-      - name: Commit and push results
+      # ── Run VIBE-CODE ───────────────────────────────────────────────────────────
+      - name: Run VIBE-CODE
+        env:
+          PROMPT:        "${{ inputs.prompt }}"
+          FILE_NAME:     "${{ inputs.file_name }}"
+          MODE:          "${{ inputs.mode }}"
+          AGENT_MODE:    "${{ inputs.agent_mode }}"
+          TARGET_REPO:   "${{ inputs.target_repo }}"
+          GH_TOKEN:      "${{ secrets.GITHUB_TOKEN }}"
+          AUTO_PR:       "${{ inputs.auto_pr }}"
+          AUTO_NOTES:    "${{ inputs.auto_notes }}"
+          MODEL_PLANNER: "${{ inputs.model_planner }}"
+          MODEL_CODER:   "${{ inputs.model_coder }}"
+          MODEL_SINGLE:  "${{ inputs.model_single }}"
+          MAX_TOKENS:    "${{ inputs.max_tokens }}"
+          ITERATIONS:    "${{ inputs.iterations }}"
+          TOTAL_BUDGET:  "${{ inputs.total_budget }}"
+          OUTPUT_DIR:    "/tmp/vibe_output"
+        run: |
+          mkdir -p /tmp/vibe_output
+          python3 generate.py
+
+      # ── Show results ────────────────────────────────────────────────────────────
+      - name: Show generated files
+        if: always()
+        run: |
+          echo "=== Output directory ==="
+          ls -la /tmp/vibe_output/ 2>/dev/null || echo "empty"
+          echo ""
+          echo "=== Release notes ==="
+          cat /tmp/vibe_output/_release_notes.md 2>/dev/null || echo "none"
+          echo ""
+          echo "=== PR URL ==="
+          cat /tmp/vibe_output/_pr_url.txt 2>/dev/null || echo "none"
+
+      # ── Commit results to THIS repo ─────────────────────────────────────────────
+      - name: Commit results to VIBE-CODE
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name  "VIBE-CODE Bot"
           git config user.email "vibecode-bot@users.noreply.github.com"
-          git add output/
-          if git diff --staged --quiet; then
-            echo "Nothing to commit"
-          else
-            MODE="${{ inputs.file_name != '' && 'improve' || 'generate' }}"
-            SLUG=$(printf '%s%s' "${{ inputs.file_name }}" "${{ inputs.prompt }}" | cut -c1-55)
-            git commit -m "feat(vibe/${MODE}): ${SLUG}"
-            git push
-          fi
+
+          SLUG=$(echo "${{ inputs.prompt }}" | head -c 50 | tr ' /' '--' | tr -cd '[:alnum:]-')
+          FOLDER="results/${SLUG}-$(date +%Y%m%d-%H%M%S)"
+          mkdir -p "$FOLDER"
+
+          # Copy outputs (skip internal files starting with _)
+          find /tmp/vibe_output -maxdepth 2 -type f ! -name '_*' -exec cp {} "$FOLDER/" \; 2>/dev/null || true
+          # Copy release notes and PR URL too
+          cp /tmp/vibe_output/_release_notes.md "$FOLDER/" 2>/dev/null || true
+          cp /tmp/vibe_output/_pr_url.txt        "$FOLDER/" 2>/dev/null || true
+
+          # Write run summary
+          cat > "$FOLDER/_run_summary.md" << SUMMARY
+          # VIBE-CODE Run Summary
+
+          | Field | Value |
+          |-------|-------|
+          | **Prompt** | ${{ inputs.prompt }} |
+          | **Mode** | ${{ inputs.agent_mode }} |
+          | **Planner** | ${{ inputs.model_planner }} |
+          | **Coder** | ${{ inputs.model_coder }} |
+          | **Target Repo** | ${{ inputs.target_repo }} |
+          | **Auto PR** | ${{ inputs.auto_pr }} |
+          | **Timestamp** | $(date -u +"%Y-%m-%d %H:%M UTC") |
+          SUMMARY
+
+          git add "$FOLDER"
+          git diff --staged --quiet || git commit -m "feat(vibe): ${{ inputs.prompt }}" && git push
+
+      # ── Upload artifacts ────────────────────────────────────────────────────────
+      - name: Upload output as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibe-output-${{ github.run_id }}
+          path: /tmp/vibe_output/
+          retention-days: 7
+
+      # ── Ollama logs (on failure) ────────────────────────────────────────────────
+      - name: Print Ollama logs on failure
+        if: failure()
+        run: cat /tmp/ollama.log 2>/dev/null | tail -50
