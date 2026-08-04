@@ -1303,6 +1303,13 @@ function confirmRepo() {
 
 // ── Send ───────────────────────────────────────────────────────────────────────
 async function send() {
+  // ── Auth guard: must be logged in via Telegram-bot registration ──
+  if (!vibeUser) {
+    openAuthOverlay();
+    toast('⚠️ Войдите через Telegram-бот, чтобы отправлять запросы', 'error');
+    return;
+  }
+
   const input = document.getElementById('prompt-input');
   const prompt = input.value.trim();
   if (!prompt) return;
@@ -1323,7 +1330,7 @@ async function send() {
   resetAgentStatus();
 
   const s = ls('vc2_settings', {});
-  const apiKeys = getApiKeyInputs();
+  // API keys are now stored as GitHub repository secrets — not passed as inputs
   const inputs = {
     prompt,
     file_name:   attachedFile?.name || '',
@@ -1339,7 +1346,6 @@ async function send() {
     model_planner: s.planner_model || 'qwen2.5:7b',
     model_coder:   s.coder_model   || 'bonsai-27b',
     model_single:  s.single_model  || 'qwen2.5-coder:7b',
-    ...apiKeys,
   };
 
   // Dispatch workflow
@@ -1670,8 +1676,23 @@ function addTraceItem(state, message, tokens) {
 
 // ── UI helpers ─────────────────────────────────────────────────────────────────
 function setSending(b) {
-  document.getElementById('send-btn').disabled = b;
+  document.getElementById('send-btn').disabled = b || !vibeUser;
   document.getElementById('prompt-input').disabled = b;
+}
+
+// Update send button & placeholder based on auth state
+function updateSendState() {
+  const btn = document.getElementById('send-btn');
+  const input = document.getElementById('prompt-input');
+  if (!vibeUser) {
+    btn.disabled = true;
+    btn.title = 'Register via Telegram bot to use VIBE-CODE';
+    input.placeholder = '🔒 Register via Telegram bot to start…';
+  } else {
+    btn.disabled = false;
+    btn.title = '';
+    input.placeholder = 'Describe what to build, fix, or improve…';
+  }
 }
 
 function cycleIter() {
@@ -1956,7 +1977,25 @@ async function vibeApiFetch(path, opts = {}) {
 
 async function checkVibeAuth() {
   const token = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
-  if (!token) { updateBalanceWidget(null); return; }
+  if (!token) { updateBalanceWidget(null); updateSendState(); return; }
+
+  // ── Owner auto-detect: works even if backend is down ──
+  const REPO_OWNER = 'B3B3097';
+  try {
+    const ghRes = await fetch('https://api.github.com/user', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (ghRes.ok) {
+      const ghData = await ghRes.json();
+      if (ghData.login && ghData.login.toLowerCase() === REPO_OWNER.toLowerCase()) {
+        vibeUser = { github_login: ghData.login, is_owner: true, balance_cents: 999999999, balance_usd: '∞' };
+        updateBalanceWidget(vibeUser);
+        updateSendState();
+        return;
+      }
+    }
+  } catch {}
+
   try {
     const r = await vibeApiFetch('/auth/me');
     if (r.ok) {
@@ -1967,6 +2006,7 @@ async function checkVibeAuth() {
       updateBalanceWidget(null);
     }
   } catch { updateBalanceWidget(null); }
+  updateSendState();
 }
 
 function updateBalanceWidget(user) {
@@ -2035,8 +2075,43 @@ async function authCheckToken() {
 
   // Save token
   saveSetting('gh_token', token);
+  GH_TOKEN_LOCAL = token;
 
-  // Check if already registered
+  // First verify token with GitHub and get login
+  let githubLogin = '';
+  try {
+    const ghRes = await fetch('https://api.github.com/user', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!ghRes.ok) {
+      errEl.textContent = 'Invalid GitHub token — please check it and try again';
+      errEl.style.display = 'block';
+      return;
+    }
+    const ghData = await ghRes.json();
+    githubLogin = ghData.login || '';
+  } catch(e) {
+    errEl.textContent = 'Could not reach GitHub. Check your connection.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // ── Owner auto-detect: repo owner gets unlimited access without backend ──
+  const REPO_OWNER = 'B3B3097';
+  if (githubLogin.toLowerCase() === REPO_OWNER.toLowerCase()) {
+    vibeUser = { github_login: githubLogin, is_owner: true, balance_cents: 999999999, balance_usd: '∞' };
+    updateBalanceWidget(vibeUser);
+    updateSendState();
+    const icon = document.getElementById('auth-success-icon');
+    const title = document.getElementById('auth-success-title');
+    const msg = document.getElementById('auth-success-msg');
+    icon.textContent = '👑'; title.textContent = 'Owner Access';
+    msg.textContent = 'Welcome, @' + githubLogin + '! You have unlimited balance.';
+    showAuthStep(3);
+    return;
+  }
+
+  // Check if already registered via backend
   try {
     const r = await fetch(VIBE_API + '/auth/me', {
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
@@ -2044,6 +2119,7 @@ async function authCheckToken() {
     if (r.ok) {
       vibeUser = await r.json();
       updateBalanceWidget(vibeUser);
+      updateSendState();
       // Already registered — show success
       const icon = document.getElementById('auth-success-icon');
       const title = document.getElementById('auth-success-title');
@@ -2087,6 +2163,7 @@ async function authRegister() {
     }
     vibeUser = { github_login: data.github_login, is_owner: data.is_owner, balance_cents: data.balance_cents };
     updateBalanceWidget(vibeUser);
+    updateSendState();
     const icon = document.getElementById('auth-success-icon');
     const title = document.getElementById('auth-success-title');
     const msg = document.getElementById('auth-success-msg');
@@ -2193,7 +2270,10 @@ async function checkTopupPayment() {
   renderHistory();
   showTab('settings');
 
-  // Load VIBE-CODE auth state
+  // Block send until auth resolves
+  updateSendState();
+
+  // Load VIBE-CODE auth state (will call updateSendState when done)
   checkVibeAuth();
 
   // Close modals on overlay click
