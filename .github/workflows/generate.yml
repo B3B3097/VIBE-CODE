@@ -20,11 +20,16 @@ on:
         default: 'single'
         type: choice
         options: [single, multi]
+      enable_tools:
+        description: 'Enable internet API tools (ToolRouter)'
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
       target_repo:
-        description: 'Target repo to read context from / commit to (owner/repo, empty = skip)'
+        description: 'Target repo (owner/repo, empty = skip)'
         default: ''
       auto_pr:
-        description: 'Create PR automatically when done'
+        description: 'Create PR automatically'
         default: 'false'
         type: choice
         options: ['false', 'true']
@@ -34,10 +39,10 @@ on:
         type: choice
         options: ['true', 'false']
       model_planner:
-        description: 'Planner model (Qwen 2.5)'
+        description: 'Planner model'
         default: 'qwen2.5:7b'
       model_coder:
-        description: 'Coder model (Bonsai 27B)'
+        description: 'Coder model'
         default: 'bonsai-27b'
       model_single:
         description: 'Single-agent model'
@@ -46,11 +51,136 @@ on:
         description: 'Max tokens per model call'
         default: '4096'
       iterations:
-        description: 'Iterations (single-agent mode)'
+        description: 'Iterations (single-agent)'
         default: '1'
       total_budget:
         description: 'Total token budget (0 = auto)'
         default: '0'
+
+      # ── Search & Web ────────────────────────────────────────────
+      serper_api_key:
+        description: '[Search] Serper.dev Google Search API key'
+        default: ''
+      brave_api_key:
+        description: '[Search] Brave Search API key'
+        default: ''
+      bing_search_key:
+        description: '[Search] Bing Search API key'
+        default: ''
+
+      # ── Weather ─────────────────────────────────────────────────
+      openweather_api_key:
+        description: '[Weather] OpenWeatherMap API key'
+        default: ''
+
+      # ── News ─────────────────────────────────────────────────────
+      news_api_key:
+        description: '[News] NewsAPI.org key'
+        default: ''
+      gnews_api_key:
+        description: '[News] GNews API key'
+        default: ''
+
+      # ── AI / LLM ─────────────────────────────────────────────────
+      openai_api_key:
+        description: '[AI] OpenAI API key'
+        default: ''
+      anthropic_api_key:
+        description: '[AI] Anthropic Claude API key'
+        default: ''
+      groq_api_key:
+        description: '[AI] Groq fast-inference API key'
+        default: ''
+      together_api_key:
+        description: '[AI] Together AI API key'
+        default: ''
+      hf_api_key:
+        description: '[AI] Hugging Face API key'
+        default: ''
+      cohere_api_key:
+        description: '[AI] Cohere API key'
+        default: ''
+      mistral_api_key:
+        description: '[AI] Mistral AI API key'
+        default: ''
+      replicate_api_key:
+        description: '[AI] Replicate API key'
+        default: ''
+
+      # ── Code Execution ───────────────────────────────────────────
+      judge0_api_key:
+        description: '[Code] Judge0 RapidAPI key'
+        default: ''
+
+      # ── Finance ──────────────────────────────────────────────────
+      alphavantage_api_key:
+        description: '[Finance] Alpha Vantage stock data key'
+        default: ''
+      exchangerate_api_key:
+        description: '[Finance] ExchangeRate-API key'
+        default: ''
+
+      # ── Media ────────────────────────────────────────────────────
+      unsplash_api_key:
+        description: '[Media] Unsplash photo search key'
+        default: ''
+      pexels_api_key:
+        description: '[Media] Pexels photo API key'
+        default: ''
+      stability_api_key:
+        description: '[Media] Stability AI image generation key'
+        default: ''
+      elevenlabs_api_key:
+        description: '[Media] ElevenLabs TTS API key'
+        default: ''
+
+      # ── Communication ────────────────────────────────────────────
+      telegram_bot_token:
+        description: '[Comm] Telegram Bot token'
+        default: ''
+      discord_webhook_url:
+        description: '[Comm] Discord webhook URL'
+        default: ''
+      slack_webhook_url:
+        description: '[Comm] Slack webhook URL'
+        default: ''
+      mailgun_api_key:
+        description: '[Comm] Mailgun API key'
+        default: ''
+      twilio_account_sid:
+        description: '[Comm] Twilio Account SID'
+        default: ''
+      twilio_auth_token:
+        description: '[Comm] Twilio Auth Token'
+        default: ''
+
+      # ── Utility ──────────────────────────────────────────────────
+      wolfram_api_key:
+        description: '[Util] Wolfram Alpha App ID'
+        default: ''
+      deepl_api_key:
+        description: '[Util] DeepL translation API key'
+        default: ''
+      ipinfo_token:
+        description: '[Util] IPinfo geolocation token'
+        default: ''
+      mapbox_api_key:
+        description: '[Util] Mapbox maps API key'
+        default: ''
+      urlscan_api_key:
+        description: '[Util] URLScan.io API key'
+        default: ''
+
+      # ── Productivity ─────────────────────────────────────────────
+      notion_api_key:
+        description: '[Prod] Notion integration secret'
+        default: ''
+      airtable_api_key:
+        description: '[Prod] Airtable personal access token'
+        default: ''
+      supabase_api_key:
+        description: '[Prod] Supabase anon/service key'
+        default: ''
 
 permissions:
   contents: write
@@ -64,34 +194,35 @@ env:
 jobs:
   generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
-      # ── Checkout ───────────────────────────────────────────────────────────────
+      # ── Checkout ────────────────────────────────────────────────────────────
       - name: Checkout VIBE-CODE
         uses: actions/checkout@v4
 
-      # ── System info ────────────────────────────────────────────────────────────
+      # ── System info ──────────────────────────────────────────────────────────
       - name: System info
         run: |
           echo "CPU : $(nproc) cores  $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)"
           echo "RAM : $(free -h | awk '/^Mem/{print $2}')"
           echo "Mode: ${{ inputs.agent_mode }}"
+          echo "Tools: ${{ inputs.enable_tools }}"
           echo "Repo: ${{ inputs.target_repo }}"
 
-      # ── Install Ollama ──────────────────────────────────────────────────────────
+      # ── Install Ollama ────────────────────────────────────────────────────────
       - name: Install Ollama
         run: |
           curl -fsSL https://ollama.ai/install.sh | sh
           nohup ollama serve > /tmp/ollama.log 2>&1 &
-          echo "Waiting for Ollama to start…"
+          echo "Waiting for Ollama…"
           for i in $(seq 1 30); do
             curl -sf http://127.0.0.1:11434/api/tags > /dev/null 2>&1 && break
             sleep 2
           done
           echo "Ollama ready"
 
-      # ── Cache: Single-agent model ───────────────────────────────────────────────
+      # ── Single-agent model cache ──────────────────────────────────────────────
       - name: Restore single-agent model cache
         id: cache-single
         if: inputs.agent_mode == 'single'
@@ -99,23 +230,17 @@ jobs:
         with:
           path: ~/.ollama
           key: ollama-${{ inputs.model_single }}-v1
-          restore-keys: |
-            ollama-${{ inputs.model_single }}-
+          restore-keys: ollama-${{ inputs.model_single }}-
 
       - name: Pull single-agent model
         if: inputs.agent_mode == 'single' && steps.cache-single.outputs.cache-hit != 'true'
-        run: |
-          echo "Downloading ${{ inputs.model_single }}…"
-          ollama pull ${{ inputs.model_single }}
-          ollama list
+        run: ollama pull ${{ inputs.model_single }}
 
-      - name: Warm up single-agent model (cache hit)
+      - name: Warm up single-agent model
         if: inputs.agent_mode == 'single' && steps.cache-single.outputs.cache-hit == 'true'
-        run: |
-          ollama list
-          echo "hi" | timeout 60 ollama run ${{ inputs.model_single }} || true
+        run: echo "hi" | timeout 60 ollama run ${{ inputs.model_single }} || true
 
-      # ── Cache: Planner model (multi-agent) ─────────────────────────────────────
+      # ── Planner model cache (multi-agent) ─────────────────────────────────────
       - name: Restore planner model cache
         id: cache-planner
         if: inputs.agent_mode == 'multi'
@@ -123,17 +248,13 @@ jobs:
         with:
           path: ~/.ollama
           key: ollama-${{ inputs.model_planner }}-v1
-          restore-keys: |
-            ollama-${{ inputs.model_planner }}-
+          restore-keys: ollama-${{ inputs.model_planner }}-
 
       - name: Pull planner model
         if: inputs.agent_mode == 'multi' && steps.cache-planner.outputs.cache-hit != 'true'
-        run: |
-          echo "Downloading planner: ${{ inputs.model_planner }}…"
-          ollama pull ${{ inputs.model_planner }}
-          ollama list
+        run: ollama pull ${{ inputs.model_planner }}
 
-      # ── Bonsai 27B setup (multi-agent coder) ───────────────────────────────────
+      # ── Bonsai 27B setup ─────────────────────────────────────────────────────
       - name: Restore Bonsai 27B GGUF cache
         id: cache-bonsai
         if: inputs.agent_mode == 'multi' && inputs.model_coder == 'bonsai-27b'
@@ -156,7 +277,6 @@ jobs:
           )
           print(f'Downloaded: {path}')
           "
-          ls -lh /tmp/bonsai-gguf/
 
       - name: Register Bonsai 27B in Ollama
         if: inputs.agent_mode == 'multi' && inputs.model_coder == 'bonsai-27b'
@@ -169,36 +289,31 @@ jobs:
           PARAMETER num_predict 4096
           EOF
           ollama create bonsai-27b -f /tmp/bonsai-modelfile
-          echo "Bonsai 27B registered"
           ollama list
 
-      - name: Pull generic coder model (non-Bonsai multi-agent)
+      - name: Pull generic coder model
         if: inputs.agent_mode == 'multi' && inputs.model_coder != 'bonsai-27b'
-        run: |
-          ollama pull ${{ inputs.model_coder }}
+        run: ollama pull ${{ inputs.model_coder }}
 
-      # ── Fetch target repo context ───────────────────────────────────────────────
+      # ── Fetch target repo context ─────────────────────────────────────────────
       - name: Fetch target repo context
         if: inputs.target_repo != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Reading repo context: ${{ inputs.target_repo }}"
-          python3 read_repo.py "${{ inputs.target_repo }}" "$GH_TOKEN" 60000 > /tmp/repo_context_raw.txt 2>&1 || true
-          if [ -f /tmp/repo_context.b64 ]; then
-            SIZE=$(wc -c < /tmp/repo_context.b64)
-            echo "Repo context: ${SIZE} bytes (base64)"
-          else
-            echo "No repo context loaded"
-          fi
+          echo "Reading repo: ${{ inputs.target_repo }}"
+          python3 read_repo.py "${{ inputs.target_repo }}" "$GH_TOKEN" 60000 > /tmp/repo_ctx_raw.txt 2>&1 || true
+          [ -f /tmp/repo_context.b64 ] && echo "Context: $(wc -c < /tmp/repo_context.b64) bytes" || echo "No context"
 
-      # ── Run VIBE-CODE ───────────────────────────────────────────────────────────
+      # ── Run VIBE-CODE ─────────────────────────────────────────────────────────
       - name: Run VIBE-CODE
         env:
+          # Core
           PROMPT:        "${{ inputs.prompt }}"
           FILE_NAME:     "${{ inputs.file_name }}"
           MODE:          "${{ inputs.mode }}"
           AGENT_MODE:    "${{ inputs.agent_mode }}"
+          ENABLE_TOOLS:  "${{ inputs.enable_tools }}"
           TARGET_REPO:   "${{ inputs.target_repo }}"
           GH_TOKEN:      "${{ secrets.GITHUB_TOKEN }}"
           AUTO_PR:       "${{ inputs.auto_pr }}"
@@ -210,16 +325,69 @@ jobs:
           ITERATIONS:    "${{ inputs.iterations }}"
           TOTAL_BUDGET:  "${{ inputs.total_budget }}"
           OUTPUT_DIR:    "/tmp/vibe_output"
+          # Search & Web
+          SERPER_API_KEY:        "${{ inputs.serper_api_key }}"
+          BRAVE_API_KEY:         "${{ inputs.brave_api_key }}"
+          BING_SEARCH_KEY:       "${{ inputs.bing_search_key }}"
+          # Weather
+          OPENWEATHER_API_KEY:   "${{ inputs.openweather_api_key }}"
+          # News
+          NEWS_API_KEY:          "${{ inputs.news_api_key }}"
+          GNEWS_API_KEY:         "${{ inputs.gnews_api_key }}"
+          # AI / LLM
+          OPENAI_API_KEY:        "${{ inputs.openai_api_key }}"
+          ANTHROPIC_API_KEY:     "${{ inputs.anthropic_api_key }}"
+          GROQ_API_KEY:          "${{ inputs.groq_api_key }}"
+          TOGETHER_API_KEY:      "${{ inputs.together_api_key }}"
+          HF_API_KEY:            "${{ inputs.hf_api_key }}"
+          COHERE_API_KEY:        "${{ inputs.cohere_api_key }}"
+          MISTRAL_API_KEY:       "${{ inputs.mistral_api_key }}"
+          REPLICATE_API_KEY:     "${{ inputs.replicate_api_key }}"
+          # Code
+          JUDGE0_API_KEY:        "${{ inputs.judge0_api_key }}"
+          # Finance
+          ALPHAVANTAGE_API_KEY:  "${{ inputs.alphavantage_api_key }}"
+          EXCHANGERATE_API_KEY:  "${{ inputs.exchangerate_api_key }}"
+          # Media
+          UNSPLASH_API_KEY:      "${{ inputs.unsplash_api_key }}"
+          PEXELS_API_KEY:        "${{ inputs.pexels_api_key }}"
+          STABILITY_API_KEY:     "${{ inputs.stability_api_key }}"
+          ELEVENLABS_API_KEY:    "${{ inputs.elevenlabs_api_key }}"
+          # Communication
+          TELEGRAM_BOT_TOKEN:    "${{ inputs.telegram_bot_token }}"
+          DISCORD_WEBHOOK_URL:   "${{ inputs.discord_webhook_url }}"
+          SLACK_WEBHOOK_URL:     "${{ inputs.slack_webhook_url }}"
+          MAILGUN_API_KEY:       "${{ inputs.mailgun_api_key }}"
+          TWILIO_ACCOUNT_SID:    "${{ inputs.twilio_account_sid }}"
+          TWILIO_AUTH_TOKEN:     "${{ inputs.twilio_auth_token }}"
+          # Utility
+          WOLFRAM_API_KEY:       "${{ inputs.wolfram_api_key }}"
+          DEEPL_API_KEY:         "${{ inputs.deepl_api_key }}"
+          IPINFO_TOKEN:          "${{ inputs.ipinfo_token }}"
+          MAPBOX_API_KEY:        "${{ inputs.mapbox_api_key }}"
+          URLSCAN_API_KEY:       "${{ inputs.urlscan_api_key }}"
+          # Productivity
+          NOTION_API_KEY:        "${{ inputs.notion_api_key }}"
+          AIRTABLE_API_KEY:      "${{ inputs.airtable_api_key }}"
+          SUPABASE_API_KEY:      "${{ inputs.supabase_api_key }}"
         run: |
           mkdir -p /tmp/vibe_output
           python3 generate.py
 
-      # ── Show results ────────────────────────────────────────────────────────────
+      # ── Show results ──────────────────────────────────────────────────────────
       - name: Show generated files
         if: always()
         run: |
           echo "=== Output directory ==="
           ls -la /tmp/vibe_output/ 2>/dev/null || echo "empty"
+          echo ""
+          echo "=== Tools used ==="
+          cat /tmp/vibe_output/_tools_status.json 2>/dev/null | python3 -c "
+          import json,sys
+          tools = json.load(sys.stdin)
+          active = [t['name'] for t in tools if t.get('active')]
+          print(f'Active ({len(active)}): {chr(44).join(active[:10])}...')
+          " || echo "none"
           echo ""
           echo "=== Release notes ==="
           cat /tmp/vibe_output/_release_notes.md 2>/dev/null || echo "none"
@@ -227,7 +395,7 @@ jobs:
           echo "=== PR URL ==="
           cat /tmp/vibe_output/_pr_url.txt 2>/dev/null || echo "none"
 
-      # ── Commit results to THIS repo ─────────────────────────────────────────────
+      # ── Commit results to this repo ───────────────────────────────────────────
       - name: Commit results to VIBE-CODE
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -239,13 +407,11 @@ jobs:
           FOLDER="results/${SLUG}-$(date +%Y%m%d-%H%M%S)"
           mkdir -p "$FOLDER"
 
-          # Copy outputs (skip internal files starting with _)
           find /tmp/vibe_output -maxdepth 2 -type f ! -name '_*' -exec cp {} "$FOLDER/" \; 2>/dev/null || true
-          # Copy release notes and PR URL too
           cp /tmp/vibe_output/_release_notes.md "$FOLDER/" 2>/dev/null || true
           cp /tmp/vibe_output/_pr_url.txt        "$FOLDER/" 2>/dev/null || true
+          cp /tmp/vibe_output/_tools_status.json "$FOLDER/" 2>/dev/null || true
 
-          # Write run summary
           cat > "$FOLDER/_run_summary.md" << SUMMARY
           # VIBE-CODE Run Summary
 
@@ -253,6 +419,7 @@ jobs:
           |-------|-------|
           | **Prompt** | ${{ inputs.prompt }} |
           | **Mode** | ${{ inputs.agent_mode }} |
+          | **Tools** | ${{ inputs.enable_tools }} |
           | **Planner** | ${{ inputs.model_planner }} |
           | **Coder** | ${{ inputs.model_coder }} |
           | **Target Repo** | ${{ inputs.target_repo }} |
@@ -263,7 +430,7 @@ jobs:
           git add "$FOLDER"
           git diff --staged --quiet || git commit -m "feat(vibe): ${{ inputs.prompt }}" && git push
 
-      # ── Upload artifacts ────────────────────────────────────────────────────────
+      # ── Upload artifact ───────────────────────────────────────────────────────
       - name: Upload output as artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -272,7 +439,7 @@ jobs:
           path: /tmp/vibe_output/
           retention-days: 7
 
-      # ── Ollama logs (on failure) ────────────────────────────────────────────────
+      # ── Ollama logs on failure ────────────────────────────────────────────────
       - name: Print Ollama logs on failure
         if: failure()
         run: cat /tmp/ollama.log 2>/dev/null | tail -50
