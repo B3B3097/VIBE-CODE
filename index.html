@@ -1,782 +1,1410 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VIBE CODE — Local AI Code Generator</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js" defer></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>VIBE-CODE · Multi-Agent Platform</title>
 <style>
-:root{
-  --bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--border:#30363d;
-  --text:#e6edf3;--text2:#8b949e;--accent:#58a6ff;
-  --green:#3fb950;--orange:#d29922;--red:#f85149;--purple:#bc8cff;
+:root {
+  --bg0: #0b0d14;
+  --bg1: #111320;
+  --bg2: #171a2e;
+  --bg3: #1e2240;
+  --border: rgba(99,120,255,.18);
+  --border2: rgba(99,120,255,.32);
+  --accent: #6378ff;
+  --accent2: #a259ff;
+  --accent3: #00e5c0;
+  --green: #22d97a;
+  --red: #ff4d6d;
+  --yellow: #ffcc00;
+  --text: #e8eaf6;
+  --text2: #8891c0;
+  --text3: #5a6290;
+  --radius: 12px;
+  --shadow: 0 8px 32px rgba(0,0,10,.5);
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--bg0);color:var(--text);font-size:14px}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-header{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:14px}
-.logo{font-size:20px;font-weight:800;letter-spacing:3px;color:var(--accent)}
-.logo span{color:var(--text)}
-.badge{background:var(--bg3);border:1px solid var(--border);color:var(--purple);font-size:11px;padding:2px 9px;border-radius:12px}
-header .spacer{flex:1}
-.hbtn{background:none;border:1px solid var(--border);color:var(--text2);padding:5px 13px;border-radius:6px;cursor:pointer;font-size:12px}
-.hbtn:hover{border-color:var(--accent);color:var(--accent)}
+/* ─── Layout ─────────────────────────────────────────── */
+#app{display:flex;height:100vh;overflow:hidden}
 
-.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99}
-.overlay.open{display:block}
-.drawer{position:fixed;top:0;right:-460px;width:460px;height:100%;background:var(--bg2);border-left:1px solid var(--border);z-index:100;padding:24px 20px;transition:right .25s;overflow-y:auto}
-.drawer.open{right:0}
-.drawer h3{font-size:15px;margin-bottom:18px;color:var(--text)}
-.field{margin-bottom:14px}
-.field label{display:block;font-size:11px;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.6px}
-.field input,.field select{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 11px;border-radius:6px;font-size:13px;outline:none;font-family:inherit}
-.field input:focus,.field select:focus{border-color:var(--accent)}
-.hint{font-size:11px;color:var(--text2);margin-top:4px;line-height:1.4}
-.hint a{color:var(--accent)}
-.save-btn{width:100%;background:var(--accent);border:none;color:#000;padding:9px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;margin-top:8px}
-.save-btn:hover{opacity:.87}
+/* ─── Sidebar ─────────────────────────────────────────── */
+#sidebar{
+  width:260px;min-width:260px;background:var(--bg1);
+  border-right:1px solid var(--border);display:flex;
+  flex-direction:column;overflow:hidden;
+}
+#sidebar-header{
+  padding:18px 16px 12px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:10px
+}
+.logo{
+  width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--accent2));
+  border-radius:8px;display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:13px;flex-shrink:0
+}
+.logo-text{font-weight:700;font-size:15px;background:linear-gradient(90deg,var(--accent),var(--accent2));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.logo-sub{font-size:10px;color:var(--text3);margin-top:1px}
 
-.main{flex:1;padding:24px;max-width:900px;margin:0 auto;width:100%}
+#new-chat-btn{
+  margin:12px;padding:9px 14px;background:linear-gradient(135deg,var(--accent),var(--accent2));
+  border:none;border-radius:var(--radius);color:#fff;font-size:13px;font-weight:600;
+  cursor:pointer;display:flex;align-items:center;gap:7px;transition:.2s
+}
+#new-chat-btn:hover{opacity:.88;transform:translateY(-1px)}
 
-/* ── Mode toggle ── */
-.mode-row{display:flex;gap:8px;margin-bottom:14px}
-.mode-btn{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:9px;border-radius:8px;font-size:13px;cursor:pointer;transition:.15s;text-align:center}
-.mode-btn.active{background:#1c2a3a;border-color:var(--accent);color:var(--accent);font-weight:600}
+#chat-tree{flex:1;overflow-y:auto;padding:4px 8px}
+.tree-section{margin-bottom:8px}
+.tree-label{font-size:10px;font-weight:600;color:var(--text3);
+  text-transform:uppercase;letter-spacing:.08em;padding:6px 8px 3px}
+.chat-item{
+  padding:8px 10px;border-radius:9px;cursor:pointer;
+  display:flex;align-items:center;gap:8px;margin-bottom:2px;
+  transition:.15s;position:relative;
+}
+.chat-item:hover{background:var(--bg2)}
+.chat-item.active{background:rgba(99,120,255,.15);border:1px solid rgba(99,120,255,.3)}
+.chat-item .ci-icon{
+  width:24px;height:24px;border-radius:6px;
+  background:var(--bg3);display:flex;align-items:center;
+  justify-content:center;font-size:12px;flex-shrink:0
+}
+.chat-item .ci-name{flex:1;font-size:13px;font-weight:500;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-item .ci-badge{
+  font-size:10px;padding:2px 6px;border-radius:20px;
+  background:rgba(99,120,255,.2);color:var(--accent);font-weight:600
+}
+.chat-item.child{margin-left:16px}
+.chat-item.child::before{
+  content:'';position:absolute;left:-8px;top:50%;
+  width:8px;height:1px;background:var(--border2)
+}
+.chat-context-tag{
+  font-size:9px;color:var(--text3);margin-top:1px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
 
-/* ── Prompt card ── */
-.prompt-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
-.prompt-card h2{font-size:15px;color:var(--text2);margin-bottom:12px;font-weight:500}
-.prompt-wrap{display:flex;gap:10px;align-items:flex-end}
-#prompt{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:12px;border-radius:8px;font-size:14px;line-height:1.55;resize:none;min-height:90px;outline:none;font-family:inherit}
-#prompt:focus{border-color:var(--accent)}
-#prompt::placeholder{color:var(--text2)}
-.right-col{display:flex;flex-direction:column;gap:8px;min-width:140px}
-#gen-btn{background:var(--accent);border:none;color:#000;padding:13px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;text-align:center}
-#gen-btn:hover:not(:disabled){box-shadow:0 4px 16px rgba(88,166,255,.35)}
-#gen-btn:disabled{opacity:.4;cursor:not-allowed}
-.opts{display:flex;gap:8px}
-.opt{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:6px 4px;border-radius:6px;font-size:12px;text-align:center}
-.opt label{font-size:10px;display:block;color:var(--text2);margin-bottom:2px}
-.opt input,.opt select{background:none;border:none;color:var(--text);font-size:12px;width:100%;text-align:center;outline:none;cursor:pointer}
-.info-bar{font-size:11px;color:var(--text2);margin-top:8px}
+/* ─── Main area ────────────────────────────────────────── */
+#main{flex:1;display:flex;flex-direction:column;overflow:hidden}
 
-/* ── File attach zone ── */
-.attach-zone{display:none;border:1.5px dashed var(--border);border-radius:10px;padding:16px;margin-bottom:14px;transition:.2s;cursor:pointer;position:relative;background:var(--bg2)}
-.attach-zone.visible{display:block}
-.attach-zone.drag{border-color:var(--accent);background:#1c2a3a}
-.attach-zone.has-file{border-style:solid;border-color:var(--green);background:#0d1f12}
-.attach-inner{display:flex;align-items:center;gap:12px}
-.attach-icon{font-size:24px;flex-shrink:0}
-.attach-text{flex:1}
-.attach-name{font-size:13px;font-weight:600;color:var(--green);margin-bottom:2px}
-.attach-meta{font-size:11px;color:var(--text2)}
-.attach-clear{background:none;border:none;color:var(--red);font-size:18px;cursor:pointer;padding:4px;flex-shrink:0;line-height:1}
-#file-input{display:none}
-.drop-hint{font-size:12px;color:var(--text2);text-align:center}
-.drop-hint span{color:var(--accent);cursor:pointer;text-decoration:underline}
-.improve-prompt{font-size:12px;color:var(--text2);margin-top:10px;border-top:1px solid var(--border);padding-top:10px}
-.improve-prompt textarea{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:6px;font-size:12px;resize:none;height:54px;outline:none;font-family:inherit;margin-top:5px}
-.improve-prompt textarea:focus{border-color:var(--accent)}
+#topbar{
+  height:52px;min-height:52px;background:var(--bg1);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 18px;gap:12px
+}
+#chat-title-input{
+  flex:1;background:transparent;border:none;color:var(--text);font-size:15px;
+  font-weight:600;outline:none
+}
+#chat-title-input::placeholder{color:var(--text3)}
+.topbar-btn{
+  padding:6px 12px;border-radius:8px;border:1px solid var(--border2);
+  background:transparent;color:var(--text2);cursor:pointer;font-size:12px;
+  font-weight:500;display:flex;align-items:center;gap:6px;transition:.15s
+}
+.topbar-btn:hover{background:var(--bg2);color:var(--text)}
+.topbar-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.topbar-btn.primary:hover{opacity:.85}
+.repo-chip{
+  padding:5px 10px;border-radius:20px;border:1px solid var(--border2);
+  background:rgba(99,120,255,.08);color:var(--accent);font-size:12px;
+  font-weight:500;cursor:pointer;display:flex;align-items:center;gap:5px;
+  max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.mode-toggle{
+  display:flex;background:var(--bg2);border-radius:8px;
+  border:1px solid var(--border);overflow:hidden
+}
+.mode-toggle button{
+  padding:5px 10px;border:none;background:transparent;color:var(--text2);
+  font-size:11px;font-weight:600;cursor:pointer;transition:.15s;
+  text-transform:uppercase;letter-spacing:.06em
+}
+.mode-toggle button.active{background:var(--accent);color:#fff}
 
-/* ── Status ── */
-.status-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px;display:none}
-.status-card.visible{display:block}
-.status-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-.spin{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
-.status-title{font-size:14px;font-weight:600}
-.status-sub{font-size:12px;color:var(--text2);margin-top:2px}
-.progress-bar{height:3px;background:var(--border);border-radius:2px;margin-top:10px;overflow:hidden}
-.progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .5s}
-.status-log{font-family:'Fira Code',monospace;font-size:11px;color:#7a9bb5;margin-top:10px;max-height:100px;overflow-y:auto;line-height:1.6;white-space:pre-wrap}
-.actions-link{color:var(--accent);font-size:12px;text-decoration:none;margin-top:6px;display:none}
-.actions-link:hover{text-decoration:underline}
-@keyframes spin{to{transform:rotate(360deg)}}
+/* ─── Chat messages ───────────────────────────────────── */
+#messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
+.msg{display:flex;gap:12px;max-width:860px;width:100%;align-self:flex-start}
+.msg.user{align-self:flex-end;flex-direction:row-reverse}
+.msg-avatar{
+  width:34px;height:34px;border-radius:9px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:15px;
+}
+.msg.user .msg-avatar{background:linear-gradient(135deg,var(--accent),var(--accent2))}
+.msg.agent-p .msg-avatar{background:linear-gradient(135deg,#ff9f43,#ff6b6b)}
+.msg.agent-c .msg-avatar{background:linear-gradient(135deg,var(--accent3),#00b894)}
+.msg.system .msg-avatar{background:var(--bg3)}
+.msg-body{flex:1}
+.msg-header{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.msg-sender{font-size:12px;font-weight:600}
+.msg.user .msg-sender{color:var(--accent)}
+.msg.agent-p .msg-sender{color:#ff9f43}
+.msg.agent-c .msg-sender{color:var(--accent3)}
+.msg-time{font-size:11px;color:var(--text3)}
+.agent-badge{
+  font-size:9px;padding:2px 6px;border-radius:20px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.06em
+}
+.badge-planner{background:rgba(255,159,67,.15);color:#ff9f43}
+.badge-coder{background:rgba(0,229,192,.12);color:var(--accent3)}
+.badge-git{background:rgba(99,120,255,.15);color:var(--accent)}
+.badge-notes{background:rgba(34,217,122,.15);color:var(--green)}
 
-/* ── Result ── */
-.result-card{background:var(--bg2);border:1px solid var(--green);border-radius:12px;padding:18px;margin-bottom:16px;display:none}
-.result-card.visible{display:block}
-.result-top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
-.result-icon{font-size:20px}
-.result-title{font-size:15px;font-weight:700;color:var(--green)}
-.result-sub{font-size:12px;color:var(--text2);margin-top:2px}
-.folder-pill{font-family:'Fira Code',monospace;background:var(--bg3);border:1px solid var(--border);padding:4px 10px;border-radius:5px;font-size:12px;color:var(--accent);display:inline-block;margin:4px 0}
-.result-links{margin-top:10px;display:flex;gap:12px;flex-wrap:wrap}
-.result-links a{color:var(--accent);font-size:12px;text-decoration:none}
-.result-links a:hover{text-decoration:underline}
-.zip-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 13px;border-radius:6px;cursor:pointer;font-size:12px;display:inline-flex;align-items:center;gap:5px;transition:.15s}
-.zip-btn:hover{border-color:var(--accent);color:var(--accent)}
-.zip-btn:disabled{opacity:.4;cursor:not-allowed}
-.files-grid{display:grid;gap:12px;margin-top:16px}
-.file-block{background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden}
-.file-hdr{padding:8px 14px;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--bg2)}
-.copy-btn{font-size:11px;background:none;border:none;color:var(--accent);cursor:pointer;padding:0}
-.file-block pre{margin:0!important;border-radius:0!important;max-height:500px;overflow-y:auto}
-.file-block pre code{font-size:11.5px!important}
+.msg-bubble{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:12px;padding:12px 14px;line-height:1.6;
+  font-size:13.5px
+}
+.msg.user .msg-bubble{
+  background:rgba(99,120,255,.12);border-color:rgba(99,120,255,.3)
+}
+.msg-bubble pre{
+  background:var(--bg0);border:1px solid var(--border);border-radius:8px;
+  padding:12px;margin:8px 0;overflow-x:auto;font-family:'JetBrains Mono',monospace;
+  font-size:12px;line-height:1.5
+}
+.msg-bubble code{
+  font-family:'JetBrains Mono',monospace;font-size:12px;
+  background:rgba(99,120,255,.15);padding:1px 5px;border-radius:4px
+}
+.msg-bubble pre code{background:none;padding:0}
+.msg-bubble h2,.msg-bubble h3{
+  margin:10px 0 5px;font-size:13px;font-weight:700;color:var(--text)
+}
+.msg-bubble ul{padding-left:18px;margin:4px 0}
+.msg-bubble li{margin:2px 0}
 
-/* ── Diff badge ── */
-.diff-badge{display:inline-flex;gap:6px;align-items:center;font-size:11px;background:var(--bg3);border:1px solid var(--border);padding:3px 9px;border-radius:12px;margin-top:6px}
-.diff-badge .del{color:var(--red)}
-.diff-badge .add{color:var(--green)}
+/* ─── Agent status strip ─────────────────────────────── */
+#agent-status{
+  background:var(--bg1);border-top:1px solid var(--border);
+  padding:8px 16px;display:flex;gap:12px;align-items:center;
+  font-size:11px;color:var(--text2);min-height:36px
+}
+.agent-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--text3);flex-shrink:0
+}
+.agent-dot.active{background:var(--green);box-shadow:0 0 8px var(--green);
+  animation:pulse 1.2s infinite}
+.agent-dot.error{background:var(--red)}
+.agent-pipe{color:var(--text3)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
-/* ── History ── */
-.history{margin-top:24px}
-.history h3{font-size:13px;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.6px}
-.hist-item{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:11px 16px;margin-bottom:8px;cursor:pointer;transition:.15s;display:flex;align-items:flex-start;gap:10px}
-.hist-item:hover{border-color:var(--accent)}
-.hist-mode{font-size:14px;flex-shrink:0;margin-top:1px}
-.hist-body{flex:1;min-width:0}
-.hist-prompt{font-size:13px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hist-meta{font-size:11px;color:var(--text2)}
-.hist-meta a{color:var(--accent)}
-.empty-history{color:var(--text2);font-size:13px;text-align:center;padding:32px;opacity:.5}
+/* ─── Input area ──────────────────────────────────────── */
+#input-area{
+  background:var(--bg1);border-top:1px solid var(--border);padding:14px 18px
+}
+.input-meta{
+  display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center
+}
+.input-tag{
+  font-size:11px;padding:3px 8px;border-radius:20px;
+  background:var(--bg3);border:1px solid var(--border);
+  color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer
+}
+.input-tag:hover{border-color:var(--border2);color:var(--text)}
+.input-tag .tag-x{color:var(--text3);margin-left:3px}
+.input-row{display:flex;gap:8px;align-items:flex-end}
+#prompt-input{
+  flex:1;background:var(--bg2);border:1px solid var(--border2);
+  border-radius:var(--radius);padding:10px 14px;color:var(--text);
+  font-size:13.5px;resize:none;outline:none;
+  font-family:inherit;line-height:1.5;max-height:180px;min-height:42px;
+  transition:.2s
+}
+#prompt-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(99,120,255,.12)}
+#send-btn{
+  width:42px;height:42px;border-radius:var(--radius);
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  font-size:16px;transition:.2s;flex-shrink:0
+}
+#send-btn:hover{opacity:.85;transform:scale(1.05)}
+#send-btn:disabled{opacity:.4;transform:none;cursor:default}
+
+/* ─── Right panel ─────────────────────────────────────── */
+#right-panel{
+  width:320px;min-width:320px;background:var(--bg1);
+  border-left:1px solid var(--border);display:flex;flex-direction:column;
+  overflow:hidden;transition:.3s
+}
+#right-panel.hidden{width:0;min-width:0;border:none}
+.rpanel-tabs{
+  display:flex;border-bottom:1px solid var(--border);background:var(--bg0)
+}
+.rpanel-tab{
+  flex:1;padding:10px;border:none;background:transparent;
+  color:var(--text3);font-size:12px;font-weight:600;cursor:pointer;
+  border-bottom:2px solid transparent;transition:.15s;
+  text-transform:uppercase;letter-spacing:.06em
+}
+.rpanel-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.rpanel-body{flex:1;overflow-y:auto;padding:14px}
+
+/* Settings panel */
+.setting-group{margin-bottom:18px}
+.setting-label{
+  font-size:11px;font-weight:600;color:var(--text3);
+  text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px
+}
+.setting-row{margin-bottom:8px}
+.setting-input,.setting-select{
+  width:100%;background:var(--bg2);border:1px solid var(--border);
+  border-radius:8px;padding:8px 11px;color:var(--text);font-size:13px;
+  outline:none;transition:.15s;font-family:inherit
+}
+.setting-input:focus,.setting-select:focus{border-color:var(--accent)}
+.setting-select option{background:var(--bg1)}
+.setting-hint{font-size:11px;color:var(--text3);margin-top:4px}
+.setting-toggle{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 0;border-bottom:1px solid var(--border)
+}
+.toggle-label{font-size:13px;color:var(--text2)}
+.toggle{
+  position:relative;width:36px;height:20px;cursor:pointer
+}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{
+  position:absolute;inset:0;background:var(--bg3);
+  border-radius:20px;transition:.2s
+}
+.toggle-slider:before{
+  content:'';position:absolute;width:14px;height:14px;
+  left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s
+}
+.toggle input:checked + .toggle-slider{background:var(--accent)}
+.toggle input:checked + .toggle-slider:before{transform:translateX(16px)}
+
+/* Release notes */
+#release-notes-content{
+  font-size:12.5px;line-height:1.7;color:var(--text2)
+}
+#release-notes-content h2{
+  font-size:13px;font-weight:700;color:var(--text);margin:12px 0 6px
+}
+#release-notes-content ul{padding-left:16px}
+#release-notes-content li{margin:3px 0;color:var(--text2)}
+#release-notes-content .rn-empty{
+  text-align:center;padding:40px 20px;color:var(--text3)
+}
+.pr-link{
+  display:flex;align-items:center;gap:8px;padding:10px 12px;
+  background:rgba(99,120,255,.1);border:1px solid var(--border2);
+  border-radius:9px;margin-bottom:12px;text-decoration:none;color:var(--accent);
+  font-size:12px;font-weight:600;transition:.15s
+}
+.pr-link:hover{background:rgba(99,120,255,.2)}
+
+/* Agent trace */
+.trace-item{
+  padding:8px;border-radius:8px;background:var(--bg2);
+  border:1px solid var(--border);margin-bottom:6px
+}
+.trace-header{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.trace-state{
+  font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.08em;padding:2px 7px;border-radius:20px
+}
+.state-planning{background:rgba(255,159,67,.15);color:#ff9f43}
+.state-coding{background:rgba(0,229,192,.12);color:var(--accent3)}
+.state-reviewing{background:rgba(99,120,255,.15);color:var(--accent)}
+.state-committing{background:rgba(34,217,122,.15);color:var(--green)}
+.state-releasing{background:rgba(162,89,255,.15);color:var(--accent2)}
+.state-done{background:rgba(34,217,122,.2);color:var(--green)}
+.trace-msg{font-size:12px;color:var(--text2)}
+.trace-tokens{font-size:10px;color:var(--text3);margin-top:2px}
+
+/* History item */
+.hist-item{
+  padding:10px;border-radius:9px;background:var(--bg2);border:1px solid var(--border);
+  margin-bottom:6px;cursor:pointer;transition:.15s
+}
+.hist-item:hover{border-color:var(--border2);background:var(--bg3)}
+.hist-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist-meta{display:flex;gap:8px;font-size:11px;color:var(--text3)}
+.hist-files{
+  display:flex;flex-wrap:wrap;gap:4px;margin-top:6px
+}
+.hist-file{
+  font-size:10px;padding:2px 7px;border-radius:4px;
+  background:rgba(99,120,255,.12);color:var(--accent);
+  font-family:'JetBrains Mono',monospace
+}
+.hist-actions{display:flex;gap:6px;margin-top:8px}
+.hist-btn{
+  padding:4px 10px;border-radius:7px;border:1px solid var(--border2);
+  background:transparent;color:var(--text2);font-size:11px;cursor:pointer;
+  transition:.15s
+}
+.hist-btn:hover{background:var(--bg3);color:var(--text)}
+.hist-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* ─── Modals ──────────────────────────────────────────── */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.7);
+  display:flex;align-items:center;justify-content:center;
+  z-index:100;opacity:0;pointer-events:none;transition:.2s
+}
+.modal-overlay.open{opacity:1;pointer-events:all}
+.modal{
+  background:var(--bg1);border:1px solid var(--border2);border-radius:16px;
+  padding:24px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto;
+  box-shadow:var(--shadow);transform:translateY(16px);transition:.2s
+}
+.modal-overlay.open .modal{transform:translateY(0)}
+.modal h3{font-size:16px;font-weight:700;margin-bottom:16px}
+.modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.btn{
+  padding:8px 18px;border-radius:9px;border:none;font-size:13px;
+  font-weight:600;cursor:pointer;transition:.15s
+}
+.btn-ghost{background:var(--bg2);color:var(--text2)}
+.btn-ghost:hover{background:var(--bg3);color:var(--text)}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.btn-primary:hover{opacity:.85}
+
+/* Repo picker */
+.repo-list{max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;margin:12px 0}
+.repo-list-item{
+  padding:9px 12px;border-radius:9px;border:1px solid var(--border);
+  background:var(--bg2);cursor:pointer;transition:.15s;
+  display:flex;align-items:center;gap:10px
+}
+.repo-list-item:hover{border-color:var(--border2);background:var(--bg3)}
+.repo-list-item.selected{border-color:var(--accent);background:rgba(99,120,255,.12)}
+.repo-name{font-size:13px;font-weight:600}
+.repo-desc{font-size:11px;color:var(--text3);margin-top:2px}
+.repo-meta{display:flex;gap:8px;font-size:10px;color:var(--text3);margin-top:3px}
+
+/* Toast */
+#toast{
+  position:fixed;bottom:24px;right:24px;padding:10px 18px;
+  background:var(--bg2);border:1px solid var(--border2);border-radius:10px;
+  font-size:13px;color:var(--text);box-shadow:var(--shadow);
+  opacity:0;transform:translateY(12px);transition:.3s;z-index:200
+}
+#toast.show{opacity:1;transform:translateY(0)}
+#toast.success{border-color:var(--green);color:var(--green)}
+#toast.error{border-color:var(--red);color:var(--red)}
+
+/* Scrollbars */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:var(--text3)}
+
+/* Responsive */
+@media(max-width:900px){
+  #sidebar{width:220px;min-width:220px}
+  #right-panel{display:none}
+}
+@media(max-width:640px){
+  #sidebar{display:none}
+  #right-panel{display:none}
+}
 </style>
 </head>
 <body>
+<div id="app">
 
-<div class="overlay" id="overlay" onclick="closeDrawer()"></div>
-<div class="drawer" id="drawer">
-  <h3>⚙️ Настройки</h3>
-  <div class="field">
-    <label>GitHub Token</label>
-    <input type="password" id="s-tok" placeholder="github_pat_..." />
-    <div class="hint">
-      Разрешения: <code>repo</code> (все)<br>
-      <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank">→ Создать токен</a><br>
-      Хранится только в браузере (localStorage)
+  <!-- ─── Sidebar ─────────────────────────────────────────── -->
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <div class="logo">VC</div>
+      <div>
+        <div class="logo-text">VIBE-CODE</div>
+        <div class="logo-sub">Multi-Agent Platform</div>
+      </div>
+    </div>
+    <button id="new-chat-btn" onclick="newChat()">
+      <span>＋</span> New Chat
+    </button>
+    <div id="chat-tree">
+      <div class="tree-section">
+        <div class="tree-label">Recent</div>
+        <div id="chat-list"></div>
+      </div>
+    </div>
+    <div style="padding:10px 12px;border-top:1px solid var(--border);font-size:11px;color:var(--text3)">
+      <span id="owner-info">Not connected</span>
     </div>
   </div>
-  <div class="field">
-    <label>Репозиторий (owner/repo)</label>
-    <input type="text" id="s-repo" placeholder="B3B3097/VIBE-CODE" />
-  </div>
-  <div class="field">
-    <label>Target Repo (анализ + коммит)</label>
-    <input type="text" id="s-target-repo" placeholder="owner/repo  (пусто = этот репо)" />
-    <div class="hint">
-      Если указать другой репо — AI изучит его код, добавит изменения и закоммитит.<br>
-      Токен должен иметь доступ write к этому репо.
+
+  <!-- ─── Main ──────────────────────────────────────────────── -->
+  <div id="main">
+    <!-- Topbar -->
+    <div id="topbar">
+      <input id="chat-title-input" placeholder="Untitled Chat" value="New Chat"/>
+      <div class="mode-toggle">
+        <button id="btn-single" class="active" onclick="setMode('single')">Single</button>
+        <button id="btn-multi" onclick="setMode('multi')">Multi-Agent</button>
+      </div>
+      <div class="repo-chip" id="repo-chip" onclick="openRepoModal()">
+        <span>📂</span>
+        <span id="repo-chip-text">Select Repo</span>
+      </div>
+      <button class="topbar-btn" onclick="addChildChat()">⤵ Sub-chat</button>
+      <button class="topbar-btn primary" onclick="togglePanel()">⚙ Settings</button>
     </div>
-  </div>
-  <div class="field">
-    <label>Итерации по умолчанию</label>
-    <input type="number" id="s-iters" value="3" min="1" max="10" />
-  </div>
-  <div class="field">
-    <label>Макс. токенов</label>
-    <select id="s-maxtok">
-      <option value="8192">8K</option>
-      <option value="16384">16K</option>
-      <option value="32768" selected>32K</option>
-      <option value="65536">64K</option>
-      <option value="131072">128K</option>
-    </select>
-  </div>
-  <button class="save-btn" onclick="saveSettings()">💾 Сохранить</button>
-</div>
 
-<header>
-  <div class="logo">VIBE<span>CODE</span></div>
-  <div class="badge">🤖 Qwen2.5-Coder-7B · Local</div>
-  <div class="spacer"></div>
-  <button class="hbtn" onclick="openDrawer()">⚙️ Настройки</button>
-</header>
-
-<div class="main">
-
-  <!-- Mode toggle -->
-  <div class="mode-row">
-    <button class="mode-btn active" id="btn-generate" onclick="setMode('generate')">
-      ✨ Генерировать код
-    </button>
-    <button class="mode-btn" id="btn-improve" onclick="setMode('improve')">
-      🔧 Улучшить файл
-    </button>
-  </div>
-
-  <!-- Prompt card -->
-  <div class="prompt-card">
-    <h2 id="card-title">💬 Что нужно сделать?</h2>
-    <div class="prompt-wrap">
-      <textarea id="prompt" placeholder="Опишите задачу... Например:
-Telegram бот на aiogram 3 с SQLite.
-Команды: /add задачу, /list, /done N.
-Кнопки InlineKeyboard, напоминания через APScheduler."></textarea>
-      <div class="right-col">
-        <button id="gen-btn" onclick="generate()">⚡ Запустить</button>
-        <div class="opts">
-          <div class="opt">
-            <label>Итер.</label>
-            <input type="number" id="q-iters" value="3" min="1" max="8" style="width:36px">
+    <!-- Messages -->
+    <div id="messages">
+      <div class="msg system">
+        <div class="msg-avatar">🤖</div>
+        <div class="msg-body">
+          <div class="msg-bubble">
+            <strong>Welcome to VIBE-CODE v2</strong> — Multi-Agent Code Platform<br><br>
+            Select a repository, choose your mode, and describe what you want to build.<br><br>
+            <strong>Single mode</strong> — classic fast generation<br>
+            <strong>Multi-Agent</strong> — Qwen 2.5 <em>plans</em>, Bonsai 27B <em>codes</em>, then code is reviewed and optionally committed as a PR
           </div>
-          <div class="opt">
-            <label>Токены</label>
-            <select id="q-maxtok">
-              <option value="8192">8K</option>
-              <option value="16384">16K</option>
-              <option value="32768" selected>32K</option>
-              <option value="65536">64K</option>
-              <option value="131072">128K</option>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agent status strip -->
+    <div id="agent-status">
+      <div class="agent-dot" id="dot-planner"></div>
+      <span id="lbl-planner" style="color:var(--text3)">Planner</span>
+      <span class="agent-pipe">│</span>
+      <div class="agent-dot" id="dot-coder"></div>
+      <span id="lbl-coder" style="color:var(--text3)">Coder</span>
+      <span class="agent-pipe">│</span>
+      <div class="agent-dot" id="dot-git"></div>
+      <span id="lbl-git" style="color:var(--text3)">Git</span>
+      <span style="flex:1"></span>
+      <span id="token-count" style="font-family:'JetBrains Mono',monospace">0 tokens</span>
+    </div>
+
+    <!-- Input -->
+    <div id="input-area">
+      <div class="input-meta" id="input-meta">
+        <div class="input-tag" id="file-tag" style="display:none">
+          <span>📎</span>
+          <span id="file-tag-name"></span>
+          <span class="tag-x" onclick="clearFile()">×</span>
+        </div>
+        <label class="input-tag" style="cursor:pointer">
+          <span>📎</span> Attach file
+          <input type="file" id="file-input" style="display:none" onchange="attachFile(this)">
+        </label>
+        <div class="input-tag" id="iter-tag" onclick="cycleIter()">
+          <span>🔁</span>
+          <span id="iter-label">1 iter</span>
+        </div>
+        <div class="input-tag" id="budget-tag" onclick="editBudget()">
+          <span>💰</span>
+          <span id="budget-label">Auto budget</span>
+        </div>
+      </div>
+      <div class="input-row">
+        <textarea id="prompt-input" rows="1"
+          placeholder="Describe what to build, fix, or improve…"
+          onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+        <button id="send-btn" onclick="send()">➤</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Right Panel ───────────────────────────────────────── -->
+  <div id="right-panel">
+    <div class="rpanel-tabs">
+      <button class="rpanel-tab active" onclick="showTab('settings')">Settings</button>
+      <button class="rpanel-tab" onclick="showTab('notes')">Release Notes</button>
+      <button class="rpanel-tab" onclick="showTab('trace')">Agent Trace</button>
+      <button class="rpanel-tab" onclick="showTab('history')">History</button>
+    </div>
+    <div class="rpanel-body">
+
+      <!-- Settings tab -->
+      <div id="tab-settings">
+        <div class="setting-group">
+          <div class="setting-label">Repository</div>
+          <div class="repo-list-item" id="settings-repo-display" onclick="openRepoModal()" style="cursor:pointer">
+            <span>📂</span>
+            <div>
+              <div class="repo-name" id="settings-repo-name">Not selected</div>
+              <div class="repo-desc" id="settings-repo-desc">Click to choose a GitHub repository</div>
+            </div>
+          </div>
+        </div>
+        <div class="setting-group">
+          <div class="setting-label">Models</div>
+          <div class="setting-row">
+            <div class="setting-hint" style="margin-bottom:4px">Planner (Architect)</div>
+            <select class="setting-select" id="sel-planner" onchange="saveSetting('planner_model',this.value)">
+              <option value="qwen2.5:7b">Qwen 2.5 7B</option>
+              <option value="qwen2.5:14b">Qwen 2.5 14B</option>
+              <option value="qwen2.5:32b">Qwen 2.5 32B</option>
+              <option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <div class="setting-hint" style="margin-bottom:4px">Coder (Executor)</div>
+            <select class="setting-select" id="sel-coder" onchange="saveSetting('coder_model',this.value)">
+              <option value="bonsai-27b">Prism Bonsai 27B ⚡</option>
+              <option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option>
+              <option value="qwen2.5-coder:14b">Qwen 2.5 Coder 14B</option>
+              <option value="deepseek-coder:6.7b">DeepSeek Coder 6.7B</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <div class="setting-hint" style="margin-bottom:4px">Single-agent model</div>
+            <select class="setting-select" id="sel-single" onchange="saveSetting('single_model',this.value)">
+              <option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option>
+              <option value="bonsai-27b">Prism Bonsai 27B</option>
+              <option value="qwen2.5:7b">Qwen 2.5 7B</option>
             </select>
           </div>
         </div>
-        <div class="opt" style="min-width:110px">
-          <label>Бюджет</label>
-          <select id="q-budget">
-            <option value="0">Авто</option>
-            <option value="100000">100K</option>
-            <option value="250000">250K</option>
-            <option value="500000">500K</option>
-            <option value="1000000">1M</option>
-          </select>
+        <div class="setting-group">
+          <div class="setting-label">Generation</div>
+          <div class="setting-row">
+            <div class="setting-hint" style="margin-bottom:4px">Max tokens / call</div>
+            <input class="setting-input" type="number" id="inp-max-tokens" value="4096"
+              onchange="saveSetting('max_tokens',this.value)"/>
+          </div>
+          <div class="setting-row">
+            <div class="setting-hint" style="margin-bottom:4px">Total token budget (0 = auto)</div>
+            <input class="setting-input" type="number" id="inp-budget" value="0"
+              onchange="saveSetting('total_budget',this.value)"/>
+          </div>
+        </div>
+        <div class="setting-group">
+          <div class="setting-label">Automation</div>
+          <div class="setting-toggle">
+            <span class="toggle-label">Auto PR on completion</span>
+            <label class="toggle"><input type="checkbox" id="tog-auto-pr"
+              onchange="saveSetting('auto_pr',this.checked)"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="setting-toggle">
+            <span class="toggle-label">Auto Release Notes</span>
+            <label class="toggle"><input type="checkbox" id="tog-auto-notes" checked
+              onchange="saveSetting('auto_notes',this.checked)"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="setting-toggle">
+            <span class="toggle-label">Inherit parent context</span>
+            <label class="toggle"><input type="checkbox" id="tog-inherit" checked
+              onchange="saveSetting('inherit_ctx',this.checked)"><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+        <div class="setting-group">
+          <div class="setting-label">GitHub Token (for PRs)</div>
+          <input class="setting-input" type="password" id="inp-gh-token"
+            placeholder="ghp_…  (stored locally only)"
+            onchange="saveSetting('gh_token',this.value)"/>
+          <div class="setting-hint">Used for repo read, commit, PR creation</div>
         </div>
       </div>
-    </div>
-    <div class="info-bar">Ctrl+Enter — запустить · Модель: Qwen2.5-Coder-7B (~4.7 GB кэш)</div>
-  </div>
 
-  <!-- File attach zone (hidden in generate mode) -->
-  <div class="attach-zone" id="attach-zone"
-       ondragover="event.preventDefault();this.classList.add('drag')"
-       ondragleave="this.classList.remove('drag')"
-       ondrop="onDrop(event)">
-    <div id="attach-empty">
-      <div class="drop-hint">
-        📎 Перетащите файл сюда или <span onclick="document.getElementById('file-input').click()">выберите</span>
-      </div>
-      <div class="drop-hint" style="margin-top:5px;font-size:10px">
-        Поддерживаются: .py .js .ts .html .css .sh .sql .json .go .rs .txt и другие текстовые файлы (до 1 МБ)
-      </div>
-    </div>
-    <div id="attach-filled" style="display:none">
-      <div class="attach-inner">
-        <div class="attach-icon" id="attach-icon">📄</div>
-        <div class="attach-text">
-          <div class="attach-name" id="attach-name">—</div>
-          <div class="attach-meta" id="attach-meta">—</div>
+      <!-- Release Notes tab -->
+      <div id="tab-notes" style="display:none">
+        <div id="pr-link-area"></div>
+        <div id="release-notes-content">
+          <div class="rn-empty">🗒 Release notes will appear here after a generation completes with a repo selected.</div>
         </div>
-        <button class="attach-clear" onclick="clearFile()" title="Убрать файл">✕</button>
       </div>
-      <div class="improve-prompt">
-        <label style="font-size:11px;color:var(--text2)">Что улучшить / изменить (опционально):</label>
-        <textarea id="improve-hint"
-          placeholder="Например: добавь обработку ошибок, оптимизируй алгоритм, добавь логирование..."></textarea>
-      </div>
-    </div>
-    <input type="file" id="file-input" onchange="onFileSelected(this)">
-  </div>
 
-  <!-- Status -->
-  <div class="status-card" id="status-card">
-    <div class="status-top">
-      <div class="spin"></div>
-      <div>
-        <div class="status-title" id="status-title">Подготовка...</div>
-        <div class="status-sub"  id="status-sub"></div>
+      <!-- Agent Trace tab -->
+      <div id="tab-trace" style="display:none">
+        <div id="agent-trace-list">
+          <div style="color:var(--text3);font-size:12px;text-align:center;padding:30px">
+            Agent trace will appear during multi-agent runs.
+          </div>
+        </div>
+      </div>
+
+      <!-- History tab -->
+      <div id="tab-history" style="display:none">
+        <div id="history-list"></div>
       </div>
     </div>
-    <div class="progress-bar"><div class="progress-fill" id="prog" style="width:5%"></div></div>
-    <div class="status-log" id="status-log"></div>
-    <a class="actions-link" id="actions-link" target="_blank">📋 Лог в GitHub Actions →</a>
   </div>
-
-  <!-- Result -->
-  <div class="result-card" id="result-card">
-    <div class="result-top">
-      <div class="result-icon" id="result-icon">✅</div>
-      <div>
-        <div class="result-title" id="result-title">Готово!</div>
-        <div class="result-sub"   id="result-sub"></div>
-      </div>
-    </div>
-    <div>Папка: <span class="folder-pill" id="result-folder"></span></div>
-    <div class="result-links" id="result-links"></div>
-    <div class="files-grid"   id="files-grid"></div>
-  </div>
-
-  <!-- History -->
-  <div class="history">
-    <h3>История</h3>
-    <div id="history-list"><div class="empty-history">Генераций ещё не было</div></div>
-  </div>
-
 </div>
 
-<script>
-// ── State ──────────────────────────────────────────────────────────────────────
-let cfg = {}, currentMode = 'generate', attachedFile = null;
+<!-- ─── Repo Modal ──────────────────────────────────────────── -->
+<div class="modal-overlay" id="repo-modal">
+  <div class="modal">
+    <h3>Select Repository</h3>
+    <input class="setting-input" id="repo-search" placeholder="Search repos or type owner/repo…"
+      oninput="filterRepos(this.value)" style="margin-bottom:10px"/>
+    <div class="repo-list" id="repo-list-modal"></div>
+    <div class="setting-row" style="margin-top:8px">
+      <div class="setting-hint" style="margin-bottom:4px">Or enter manually:</div>
+      <input class="setting-input" id="repo-manual-input" placeholder="owner/repo"/>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('repo-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmRepo()">Confirm</button>
+    </div>
+  </div>
+</div>
 
-// ── Settings ────────────────────────────────────────────────────────────────────
+<!-- ─── New Chat Modal ─────────────────────────────────────── -->
+<div class="modal-overlay" id="new-chat-modal">
+  <div class="modal">
+    <h3>New Chat</h3>
+    <div class="setting-row">
+      <div class="setting-hint" style="margin-bottom:4px">Chat name</div>
+      <input class="setting-input" id="nc-name" placeholder="My feature…" value=""/>
+    </div>
+    <div class="setting-row">
+      <div class="setting-hint" style="margin-bottom:4px">Parent chat (optional — inherits settings)</div>
+      <select class="setting-select" id="nc-parent">
+        <option value="">— None (root chat) —</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <div class="setting-hint" style="margin-bottom:4px">Repository</div>
+      <input class="setting-input" id="nc-repo" placeholder="owner/repo (leave empty to inherit)"/>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('new-chat-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmNewChat()">Create</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── JSZip CDN ──────────────────────────────────────────────────────────────────
+const JSZIP_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+
+// ── State ──────────────────────────────────────────────────────────────────────
+let GH_OWNER = '', GH_REPO_FULL = '', GH_TOKEN_LOCAL = '';
+let currentChatId = null;
+let agentMode = 'single';  // 'single' | 'multi'
+let iters = 1, tokenBudget = 0;
+let attachedFile = null, attachedContent = '';
+let panelOpen = true;
+let activeTab = 'settings';
+let allRepos = [];
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+function ls(key, def) { try { return JSON.parse(localStorage.getItem(key)) ?? def; } catch { return def; } }
+function lsSet(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+
 function loadSettings() {
-  try { cfg = JSON.parse(localStorage.getItem('vc2-cfg') || '{}'); } catch(_) { cfg = {}; }
-  cfg.token  = cfg.token  || '';
-  cfg.repo   = cfg.repo   || 'B3B3097/VIBE-CODE';
-  cfg.iters  = cfg.iters  || 3;
-  cfg.maxtok = cfg.maxtok || 32768;
-  cfg.budget     = cfg.budget     || 0;
-  cfg.targetRepo = cfg.targetRepo || '';
-  document.getElementById('s-tok').value    = cfg.token;
-  document.getElementById('s-repo').value   = cfg.repo;
-  document.getElementById('s-iters').value  = cfg.iters;
-  document.getElementById('s-maxtok').value = cfg.maxtok;
-  document.getElementById('q-iters').value  = cfg.iters;
-  const trEl = document.getElementById('s-target-repo');
-  if (trEl) trEl.value = cfg.targetRepo || '';
-  const budgetSel = document.getElementById('q-budget');
-  if (budgetSel) budgetSel.value = String(cfg.budget || 0);
-  loadHistory();
+  const s = ls('vc2_settings', {});
+  document.getElementById('sel-planner').value = s.planner_model || 'qwen2.5:7b';
+  document.getElementById('sel-coder').value   = s.coder_model   || 'bonsai-27b';
+  document.getElementById('sel-single').value  = s.single_model  || 'qwen2.5-coder:7b';
+  document.getElementById('inp-max-tokens').value = s.max_tokens || 4096;
+  document.getElementById('inp-budget').value  = s.total_budget || 0;
+  document.getElementById('tog-auto-pr').checked    = !!s.auto_pr;
+  document.getElementById('tog-auto-notes').checked = s.auto_notes !== false;
+  document.getElementById('tog-inherit').checked    = s.inherit_ctx !== false;
+  if (s.gh_token) document.getElementById('inp-gh-token').value = s.gh_token;
+  if (s.repo) { GH_REPO_FULL = s.repo; updateRepoDisplay(s.repo); }
+  if (s.mode) setMode(s.mode, false);
+  GH_TOKEN_LOCAL = s.gh_token || '';
 }
-function saveSettings() {
-  cfg.token  = document.getElementById('s-tok').value.trim();
-  cfg.repo   = document.getElementById('s-repo').value.trim();
-  cfg.iters  = +document.getElementById('s-iters').value;
-  cfg.maxtok = +document.getElementById('s-maxtok').value;
-  cfg.budget     = +(document.getElementById('q-budget')?.value || 0);
-  cfg.targetRepo = (document.getElementById('s-target-repo')?.value || '').trim();
-  localStorage.setItem('vc2-cfg', JSON.stringify(cfg));
-  closeDrawer();
+function saveSetting(key, val) {
+  const s = ls('vc2_settings', {});
+  s[key] = val;
+  lsSet('vc2_settings', s);
+  if (key === 'gh_token') GH_TOKEN_LOCAL = val;
 }
-function openDrawer()  { document.getElementById('drawer').classList.add('open');  document.getElementById('overlay').classList.add('open'); }
-function closeDrawer() { document.getElementById('drawer').classList.remove('open'); document.getElementById('overlay').classList.remove('open'); }
+
+// ── Chats ──────────────────────────────────────────────────────────────────────
+function getChats() { return ls('vc2_chats', []); }
+function saveChats(chats) { lsSet('vc2_chats', chats); }
+
+function newChat() {
+  // Populate parent dropdown
+  const chats = getChats();
+  const sel = document.getElementById('nc-parent');
+  sel.innerHTML = '<option value="">— None (root chat) —</option>';
+  chats.forEach(c => {
+    const o = document.createElement('option');
+    o.value = c.id; o.textContent = c.name;
+    sel.appendChild(o);
+  });
+  document.getElementById('nc-name').value = '';
+  document.getElementById('nc-repo').value = '';
+  openModal('new-chat-modal');
+}
+
+function confirmNewChat() {
+  const name   = document.getElementById('nc-name').value.trim() || 'New Chat';
+  const parent = document.getElementById('nc-parent').value;
+  const repo   = document.getElementById('nc-repo').value.trim();
+  const chats  = getChats();
+  const id     = Date.now().toString(36);
+  const inheritRepo = parent
+    ? (chats.find(c => c.id === parent)?.repo || GH_REPO_FULL)
+    : GH_REPO_FULL;
+  chats.push({
+    id, name, parent: parent || null,
+    repo: repo || inheritRepo,
+    mode: agentMode,
+    messages: [],
+    createdAt: Date.now()
+  });
+  saveChats(chats);
+  closeModal('new-chat-modal');
+  switchChat(id);
+  renderChatTree();
+  toast('Chat created', 'success');
+}
+
+function addChildChat() {
+  if (!currentChatId) { newChat(); return; }
+  const chats = getChats();
+  const parent = chats.find(c => c.id === currentChatId);
+  const id = Date.now().toString(36);
+  chats.push({
+    id,
+    name: `Sub: ${parent?.name || 'Chat'}`,
+    parent: currentChatId,
+    repo: parent?.repo || GH_REPO_FULL,
+    mode: agentMode,
+    messages: [],
+    createdAt: Date.now()
+  });
+  saveChats(chats);
+  switchChat(id);
+  renderChatTree();
+  toast('Sub-chat created', 'success');
+}
+
+function switchChat(id) {
+  currentChatId = id;
+  const chats = getChats();
+  const chat  = chats.find(c => c.id === id);
+  if (!chat) return;
+  document.getElementById('chat-title-input').value = chat.name;
+  if (chat.repo) { GH_REPO_FULL = chat.repo; updateRepoDisplay(chat.repo); }
+  if (chat.mode) setMode(chat.mode, false);
+  renderMessages(chat.messages || []);
+  renderChatTree();
+}
+
+function saveCurrentMessages(msgs) {
+  if (!currentChatId) return;
+  const chats = getChats();
+  const idx   = chats.findIndex(c => c.id === currentChatId);
+  if (idx >= 0) { chats[idx].messages = msgs; saveChats(chats); }
+}
+
+function renderChatTree() {
+  const chats = getChats();
+  const container = document.getElementById('chat-list');
+  container.innerHTML = '';
+  const roots = chats.filter(c => !c.parent);
+  function renderItem(c, isChild) {
+    const div = document.createElement('div');
+    div.className = 'chat-item' + (isChild ? ' child' : '') + (c.id === currentChatId ? ' active' : '');
+    const repoShort = c.repo ? c.repo.split('/').pop() : '';
+    div.innerHTML = `
+      <div class="ci-icon">${isChild ? '↳' : '💬'}</div>
+      <div style="flex:1;min-width:0">
+        <div class="ci-name">${c.name}</div>
+        ${repoShort ? `<div class="chat-context-tag">📂 ${repoShort}</div>` : ''}
+      </div>
+      ${(c.messages||[]).length > 0 ? `<div class="ci-badge">${c.messages.length}</div>` : ''}
+    `;
+    div.onclick = () => switchChat(c.id);
+    container.appendChild(div);
+    // Render children
+    chats.filter(ch => ch.parent === c.id).forEach(ch => renderItem(ch, true));
+  }
+  if (roots.length === 0) {
+    container.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px">No chats yet</div>';
+    return;
+  }
+  roots.forEach(c => renderItem(c, false));
+}
+
+// ── Messages ───────────────────────────────────────────────────────────────────
+let sessionMessages = [];
+
+function renderMessages(msgs) {
+  sessionMessages = msgs;
+  const container = document.getElementById('messages');
+  container.innerHTML = '';
+  msgs.forEach(m => appendMsgDOM(m, false));
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendMsgDOM(msg, save = true) {
+  if (save) {
+    sessionMessages.push(msg);
+    saveCurrentMessages(sessionMessages);
+  }
+  const container = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = `msg ${msg.role === 'user' ? 'user' : msg.role === 'planner' ? 'agent-p' : msg.role === 'coder' ? 'agent-c' : 'system'}`;
+  const badges = { planner: 'Planner', coder: 'Coder', git: 'Git', release: 'Notes' };
+  const badgeCls = { planner: 'badge-planner', coder: 'badge-coder', git: 'badge-git', release: 'badge-notes' };
+  const avatars = { user: '👤', planner: '🧠', coder: '⚡', git: '🔗', release: '📝', system: '🤖' };
+  div.innerHTML = `
+    <div class="msg-avatar">${avatars[msg.role] || '🤖'}</div>
+    <div class="msg-body">
+      <div class="msg-header">
+        <span class="msg-sender">${msg.sender || msg.role}</span>
+        ${msg.badge ? `<span class="agent-badge ${badgeCls[msg.role]||''}">${msg.badge}</span>` : ''}
+        <span class="msg-time">${msg.time || now()}</span>
+      </div>
+      <div class="msg-bubble">${renderMarkdown(msg.content)}</div>
+    </div>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function now() {
+  return new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+
+function renderMarkdown(text) {
+  return text
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+      `<pre><code class="lang-${lang}">${escHtml(code)}</code></pre>`)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
+    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n/g, '<br>');
+}
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 
 // ── Mode ────────────────────────────────────────────────────────────────────────
-function setMode(mode) {
-  currentMode = mode;
-  document.getElementById('btn-generate').classList.toggle('active', mode === 'generate');
-  document.getElementById('btn-improve').classList.toggle('active',  mode === 'improve');
-  const zone = document.getElementById('attach-zone');
-  zone.classList.toggle('visible', mode === 'improve');
+function setMode(m, saveS = true) {
+  agentMode = m;
+  document.getElementById('btn-single').classList.toggle('active', m === 'single');
+  document.getElementById('btn-multi').classList.toggle('active',  m === 'multi');
+  if (saveS) saveSetting('mode', m);
+}
 
-  const title = document.getElementById('card-title');
-  const textarea = document.getElementById('prompt');
-  if (mode === 'improve') {
-    title.textContent = '💬 Что нужно изменить? (опционально)';
-    textarea.placeholder = 'Необязательно — если пусто, модель сама улучшит всё что найдёт.\nПример: добавь обработку ошибок и логирование';
-    textarea.style.minHeight = '60px';
-  } else {
-    title.textContent = '💬 Что нужно сделать?';
-    textarea.placeholder = 'Опишите задачу... Например:\nTelegram бот на aiogram 3 с SQLite.\nКоманды: /add, /list, /done N.\nКнопки InlineKeyboard, напоминания.';
-    textarea.style.minHeight = '90px';
-    clearFile();
+// ── Repo ───────────────────────────────────────────────────────────────────────
+function updateRepoDisplay(repo) {
+  document.getElementById('repo-chip-text').textContent = repo || 'Select Repo';
+  document.getElementById('settings-repo-name').textContent  = repo || 'Not selected';
+  document.getElementById('settings-repo-desc').textContent  = repo
+    ? `github.com/${repo}` : 'Click to choose a GitHub repository';
+  saveSetting('repo', repo);
+}
+
+function openRepoModal() {
+  document.getElementById('repo-search').value = '';
+  document.getElementById('repo-manual-input').value = GH_REPO_FULL;
+  loadRepos();
+  openModal('repo-modal');
+}
+
+async function loadRepos() {
+  const token = GH_TOKEN_LOCAL || ls('vc2_settings',{}).gh_token || '';
+  if (!token) {
+    document.getElementById('repo-list-modal').innerHTML =
+      '<div style="color:var(--text3);font-size:12px;padding:12px">Add a GitHub token in Settings to auto-load repos</div>';
+    return;
+  }
+  document.getElementById('repo-list-modal').innerHTML =
+    '<div style="color:var(--text3);font-size:12px;padding:12px">Loading…</div>';
+  try {
+    const r = await fetch('https://api.github.com/user/repos?sort=pushed&per_page=50', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    allRepos = await r.json();
+    renderRepoList(allRepos);
+  } catch {
+    document.getElementById('repo-list-modal').innerHTML =
+      '<div style="color:var(--red);font-size:12px;padding:12px">Failed to load repos</div>';
   }
 }
 
-// ── File handling ───────────────────────────────────────────────────────────────
-const LANG_ICONS = {py:'🐍',js:'📜',ts:'📘',html:'🌐',css:'🎨',sh:'⚙️',bash:'⚙️',
-                    json:'📋',sql:'🗄️',go:'🔵',rs:'🦀',txt:'📄',md:'📝'};
-
-function onDrop(e) {
-  e.preventDefault();
-  document.getElementById('attach-zone').classList.remove('drag');
-  const file = e.dataTransfer.files[0];
-  if (file) readFile(file);
+function renderRepoList(repos) {
+  const container = document.getElementById('repo-list-modal');
+  container.innerHTML = '';
+  if (!Array.isArray(repos) || repos.length === 0) {
+    container.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:12px">No repos found</div>';
+    return;
+  }
+  repos.slice(0, 30).forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'repo-list-item' + (r.full_name === GH_REPO_FULL ? ' selected' : '');
+    div.innerHTML = `
+      <div>
+        <div class="repo-name">📦 ${r.name}</div>
+        <div class="repo-desc">${r.description || ''}</div>
+        <div class="repo-meta">
+          <span>⭐ ${r.stargazers_count||0}</span>
+          <span>${r.language||'—'}</span>
+          <span>${r.private ? '🔒 Private' : '🌐 Public'}</span>
+        </div>
+      </div>`;
+    div.onclick = () => {
+      document.querySelectorAll('.repo-list-item').forEach(x => x.classList.remove('selected'));
+      div.classList.add('selected');
+      document.getElementById('repo-manual-input').value = r.full_name;
+    };
+    container.appendChild(div);
+  });
 }
-function onFileSelected(input) {
-  const file = input.files[0];
-  if (file) readFile(file);
-  input.value = '';
+
+function filterRepos(q) {
+  const filtered = allRepos.filter(r =>
+    r.full_name.toLowerCase().includes(q.toLowerCase()) ||
+    (r.description||'').toLowerCase().includes(q.toLowerCase())
+  );
+  renderRepoList(filtered);
+  document.getElementById('repo-manual-input').value = q;
 }
 
-function readFile(file) {
-  const MAX = 1024 * 1024;  // 1 MB
-  if (file.size > MAX) { alert(`Файл слишком большой (${(file.size/1024/1024).toFixed(1)} МБ). Максимум 1 МБ.`); return; }
+function confirmRepo() {
+  const val = document.getElementById('repo-manual-input').value.trim();
+  if (val) { GH_REPO_FULL = val; updateRepoDisplay(val); }
+  closeModal('repo-modal');
+}
 
-  const reader = new FileReader();
-  reader.onload = e => {
-    const text = e.target.result;
-    attachedFile = { name: file.name, content: text, size: file.size };
-    showAttached();
+// ── Send ───────────────────────────────────────────────────────────────────────
+async function send() {
+  const input = document.getElementById('prompt-input');
+  const prompt = input.value.trim();
+  if (!prompt) return;
+  input.value = ''; autoResize(input);
+  setSending(true);
+
+  // If no active chat, create one
+  if (!currentChatId) {
+    const chats = getChats();
+    const id = Date.now().toString(36);
+    chats.push({ id, name: prompt.slice(0,40) || 'New Chat',
+      parent: null, repo: GH_REPO_FULL, mode: agentMode, messages: [], createdAt: Date.now() });
+    saveChats(chats); currentChatId = id; renderChatTree();
+    document.getElementById('chat-title-input').value = prompt.slice(0,40) || 'New Chat';
+  }
+
+  appendMsgDOM({ role:'user', sender:'You', content: prompt, time: now() });
+  resetAgentStatus();
+
+  const s = ls('vc2_settings', {});
+  const inputs = {
+    prompt,
+    file_name:   attachedFile?.name || '',
+    mode:        'generate',
+    max_tokens:  String(s.max_tokens || 4096),
+    iterations:  String(iters),
+    total_budget:String(tokenBudget || s.total_budget || 0),
+    agent_mode:  agentMode,
+    target_repo: GH_REPO_FULL || '',
+    auto_pr:     String(!!s.auto_pr),
+    auto_notes:  String(s.auto_notes !== false),
+    model_planner: s.planner_model || 'qwen2.5:7b',
+    model_coder:   s.coder_model   || 'bonsai-27b',
+    model_single:  s.single_model  || 'qwen2.5-coder:7b',
   };
-  reader.readAsText(file, 'utf-8');
+
+  // Dispatch workflow
+  const wfResult = await dispatchWorkflow(inputs);
+  if (!wfResult.ok) {
+    appendMsgDOM({ role:'system', sender:'System', content: `❌ Dispatch failed: ${wfResult.error}`, time: now() });
+    setSending(false);
+    return;
+  }
+  const runId = wfResult.runId;
+  appendMsgDOM({ role:'system', sender:'System',
+    content: `🚀 Workflow dispatched — Run #${runId || '?'}\nPolling for results…`, time: now() });
+
+  // Poll
+  await pollWorkflow(runId, prompt, inputs);
+  setSending(false);
 }
 
-function showAttached() {
-  if (!attachedFile) return;
-  const ext  = attachedFile.name.split('.').pop().toLowerCase();
-  const icon = LANG_ICONS[ext] || '📄';
-  const kb   = (attachedFile.size / 1024).toFixed(1);
-  const lines= attachedFile.content.split('\n').length;
-  document.getElementById('attach-icon').textContent = icon;
-  document.getElementById('attach-name').textContent = attachedFile.name;
-  document.getElementById('attach-meta').textContent = `${kb} КБ · ${lines} строк`;
-  document.getElementById('attach-empty').style.display  = 'none';
-  document.getElementById('attach-filled').style.display = 'block';
-  document.getElementById('attach-zone').classList.add('has-file');
-}
-
-function clearFile() {
-  attachedFile = null;
-  document.getElementById('attach-empty').style.display  = 'block';
-  document.getElementById('attach-filled').style.display = 'none';
-  document.getElementById('attach-zone').classList.remove('has-file');
-  document.getElementById('improve-hint').value = '';
-}
-
-// ── GitHub API ─────────────────────────────────────────────────────────────────
-async function ghFetch(path, opts = {}) {
-  const r = await fetch(`https://api.github.com${path}`, {
-    ...opts,
-    headers: {
-      'Authorization': `Bearer ${cfg.token}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-      ...(opts.headers || {}),
-    },
-  });
-  if (r.status === 204) return {};       // workflow_dispatch returns No Content
-  if (r.status === 404) return null;
-  const text = await r.text();
-  if (!text) return {};
-  let data;
-  try { data = JSON.parse(text); } catch(_) { data = { _raw: text }; }
-  if (!r.ok) throw new Error(`GitHub ${r.status}: ${(data.message || text).slice(0, 300)}`);
-  return data;
-}
-
-async function triggerWorkflow(prompt, sessionId, iters, maxTok, fileName, fileContentB64, totalBudget, targetRepo) {
-  await ghFetch(`/repos/${cfg.repo}/actions/workflows/generate.yml/dispatches`, {
-    method: 'POST',
-    body: JSON.stringify({
-      ref: 'main',
-      inputs: {
-        prompt:       prompt,
-        session_id:   sessionId,
-        max_iters:    String(iters),
-        max_tokens:   String(maxTok),
-        total_budget: String(totalBudget || 0),
-        target_repo:  targetRepo || '',
-        file_name:    fileName    || '',
-        file_content: fileContentB64 || '',
-      },
-    }),
-  });
-}
-
-async function getLatestRun(since) {
-  const d = await ghFetch(`/repos/${cfg.repo}/actions/runs?per_page=5&event=workflow_dispatch`);
-  if (!d) return null;
-  const runs = d.workflow_runs || [];
-  return runs.find(r => new Date(r.created_at) >= since) || runs[0] || null;
-}
-
-async function getRepoFile(path) {
-  const d = await ghFetch(`/repos/${cfg.repo}/contents/${path}`);
-  if (!d) return null;
-  try { return atob(d.content.replace(/\n/g, '')); } catch(_) { return null; }
-}
-
-async function listFolder(folder) {
-  const d = await ghFetch(`/repos/${cfg.repo}/contents/${folder}`);
-  if (!d || !Array.isArray(d)) return [];
-  return d.filter(f => f.type === 'file' && !f.name.startsWith('_'));
-}
-
-// ── UI helpers ────────────────────────────────────────────────────────────────
-function setStatus(title, sub, pct, log) {
-  document.getElementById('status-title').textContent = title;
-  document.getElementById('status-sub').textContent   = sub || '';
-  document.getElementById('prog').style.width = (pct || 5) + '%';
-  if (log) {
-    const el = document.getElementById('status-log');
-    el.textContent += log + '\n';
-    el.scrollTop    = el.scrollHeight;
+async function dispatchWorkflow(inputs) {
+  const token = GH_TOKEN_LOCAL || ls('vc2_settings',{}).gh_token || '';
+  if (!token) return { ok:false, error:'No GitHub token. Add one in Settings.' };
+  try {
+    const wfInputs = {};
+    Object.entries(inputs).forEach(([k,v]) => { wfInputs[k] = String(v); });
+    const r = await fetch(
+      `https://api.github.com/repos/B3B3097/VIBE-CODE/actions/workflows/generate.yml/dispatches`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ref:'main', inputs: wfInputs })
+      }
+    );
+    if (!r.ok) {
+      const err = await r.text();
+      return { ok:false, error:`HTTP ${r.status}: ${err.slice(0,200)}` };
+    }
+    // Get latest run id
+    await sleep(3000);
+    const runs = await fetch(
+      `https://api.github.com/repos/B3B3097/VIBE-CODE/actions/runs?per_page=1`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    ).then(r=>r.json());
+    const runId = runs.workflow_runs?.[0]?.id;
+    return { ok:true, runId };
+  } catch(e) {
+    return { ok:false, error: e.message };
   }
 }
-function showCard(id, show) {
-  document.getElementById(id).classList.toggle('visible', show);
-}
-function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
 
-async function renderResult(progress) {
-  document.getElementById('result-icon').textContent   = progress.mode === 'improve' ? '🔧' : '✅';
-  document.getElementById('result-title').textContent  = progress.mode === 'improve' ? 'Файл улучшен!' : 'Код сгенерирован!';
-  const toks = progress.tokensUsed > 0 ? `  · ${(progress.tokensUsed/1000).toFixed(1)}K токенов` : '';
-  document.getElementById('result-sub').textContent    =
-    `${progress.files.length} файл(ов) · ${new Date().toLocaleString('ru')}${toks}`;
-  document.getElementById('result-folder').textContent = progress.folder + '/';
+async function pollWorkflow(runId, prompt, inputs) {
+  const token = GH_TOKEN_LOCAL || ls('vc2_settings',{}).gh_token || '';
+  if (!runId || !token) return;
+  const maxWait = 600000; // 10 min
+  const interval = 8000;
+  const start = Date.now();
+  let lastStatus = '';
 
-  const ghUrl = `https://github.com/${cfg.repo}/tree/main/${progress.folder}`;
-  const zipBtnId = 'zip-btn-' + Date.now();
-  document.getElementById('result-links').innerHTML =
-    `<a href="${esc(ghUrl)}" target="_blank">📁 Открыть в GitHub →</a>
-     <button class="zip-btn" id="${zipBtnId}" onclick="downloadZip('${esc(progress.folder)}', ${JSON.stringify(progress.files || [])}, this)">⬇️ Скачать ZIP</button>`;
-  showCard('result-card', true);
-}
+  while (Date.now() - start < maxWait) {
+    await sleep(interval);
+    try {
+      const run = await fetch(
+        `https://api.github.com/repos/B3B3097/VIBE-CODE/actions/runs/${runId}`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      ).then(r=>r.json());
 
-async function loadFiles(folder, fileList) {
-  const grid = document.getElementById('files-grid');
-  grid.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:8px">Загружаю файлы...</div>';
-  const EXT_LANG = {py:'python',js:'javascript',ts:'typescript',sh:'bash',html:'html',css:'css',json:'json',md:'markdown'};
-  const renders  = [];
-  for (const fi of fileList.slice(0, 8)) {
-    const raw = await getRepoFile(`${folder}/${fi.name}`);
-    if (raw == null) continue;
-    const ext  = fi.name.split('.').pop();
-    renders.push({ name: fi.name, lang: EXT_LANG[ext] || 'text', content: raw });
+      const status = run.status;
+      const conclusion = run.conclusion;
+
+      if (status !== lastStatus) {
+        lastStatus = status;
+        updateAgentStatus(status, agentMode);
+      }
+
+      if (status === 'completed') {
+        if (conclusion === 'success') {
+          await loadResults(runId, prompt, inputs);
+        } else {
+          appendMsgDOM({ role:'system', sender:'System',
+            content:`❌ Workflow ended: **${conclusion}**\n[View logs](${run.html_url})`,
+            time: now() });
+        }
+        return;
+      }
+    } catch {}
   }
-  grid.innerHTML = '';
-  for (const f of renders) {
-    const block = document.createElement('div');
-    block.className = 'file-block';
-    block.innerHTML = `
-      <div class="file-hdr">
-        📄 ${esc(f.name)} <span style="color:var(--text2);font-size:10px;margin-left:4px">${f.content.split('\n').length} строк</span>
-        <button class="copy-btn" onclick="copyBlock(this)">📋 Копировать</button>
+  appendMsgDOM({ role:'system', sender:'System',
+    content:'⏱ Timed out waiting for workflow.', time: now() });
+}
+
+async function loadResults(runId, prompt, inputs) {
+  const token = GH_TOKEN_LOCAL || ls('vc2_settings',{}).gh_token || '';
+  // Fetch artifacts list
+  try {
+    const artsResp = await fetch(
+      `https://api.github.com/repos/B3B3097/VIBE-CODE/actions/runs/${runId}/artifacts`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    ).then(r=>r.json());
+    const arts = artsResp.artifacts || [];
+
+    for (const art of arts) {
+      const name = art.name;
+      // Download the zip
+      const zipResp = await fetch(
+        `https://api.github.com/repos/B3B3097/VIBE-CODE/actions/artifacts/${art.id}/zip`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      const zipBlob = await zipResp.blob();
+      await processArtifactZip(zipBlob, name);
+    }
+    if (arts.length === 0) {
+      appendMsgDOM({ role:'system', sender:'System',
+        content:'✅ Workflow completed — no downloadable artifacts found.', time: now() });
+    }
+  } catch(e) {
+    appendMsgDOM({ role:'system', sender:'System',
+      content:`⚠️ Could not load results: ${e.message}`, time: now() });
+  }
+  addToHistory(prompt, inputs, runId);
+}
+
+async function processArtifactZip(blob, artifactName) {
+  if (!window.JSZip) {
+    await loadScript(JSZIP_CDN);
+  }
+  const zip = await JSZip.loadAsync(blob);
+  const files = {};
+  const filePromises = [];
+  zip.forEach((path, file) => {
+    if (!file.dir) {
+      filePromises.push(file.async('string').then(c => { files[path] = c; }));
+    }
+  });
+  await Promise.all(filePromises);
+
+  const releaseNotes = files['_release_notes.md'] || '';
+  const prUrl = files['_pr_url.txt'] || '';
+
+  // Display code files
+  const codeFiles = Object.entries(files).filter(([k]) => !k.startsWith('_'));
+  if (codeFiles.length > 0) {
+    const preview = codeFiles.slice(0,3).map(([k,v]) =>
+      `**${k}**\n\`\`\`\n${v.slice(0,800)}${v.length>800?'\n…':''}\n\`\`\``
+    ).join('\n\n');
+    appendMsgDOM({
+      role: agentMode === 'multi' ? 'coder' : 'system',
+      sender: agentMode === 'multi' ? 'Coder (Bonsai 27B)' : 'VIBE-CODE',
+      badge: agentMode === 'multi' ? 'Bonsai 27B' : undefined,
+      content: `✅ Generated ${codeFiles.length} file(s):\n\n${preview}`,
+      time: now()
+    });
+    // Offer download
+    displayDownloadBtn(files, artifactName);
+  }
+
+  if (releaseNotes) {
+    appendMsgDOM({ role:'release', sender:'Release Notes', badge:'auto-generated',
+      content: releaseNotes, time: now() });
+    document.getElementById('release-notes-content').innerHTML =
+      renderMarkdown(releaseNotes);
+    showTab('notes');
+  }
+
+  if (prUrl) {
+    appendMsgDOM({ role:'git', sender:'Git', badge:'PR Created',
+      content:`🔗 Pull Request created: [${prUrl}](${prUrl})`, time: now() });
+    document.getElementById('pr-link-area').innerHTML =
+      `<a class="pr-link" href="${prUrl}" target="_blank">🔗 View Pull Request</a>`;
+  }
+}
+
+function displayDownloadBtn(files, label) {
+  const container = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.innerHTML = `
+    <div class="msg-avatar">💾</div>
+    <div class="msg-body">
+      <div class="msg-header"><span class="msg-sender">Downloads</span>
+        <span class="msg-time">${now()}</span></div>
+      <div class="msg-bubble" style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="topbar-btn primary" onclick="downloadZip(this)" data-label="${label}">
+          ⬇ Download ZIP
+        </button>
       </div>
-      <pre><code class="language-${f.lang}">${esc(f.content)}</code></pre>`;
-    grid.appendChild(block);
-    try { Prism.highlightAllUnder(block); } catch(_) {}
-  }
+    </div>`;
+  div._files = files;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  // Attach files to button for download
+  div.querySelector('button').onclick = () => buildAndDownloadZip(files, label);
 }
 
-function copyBlock(btn) {
-  const code = btn.closest('.file-block').querySelector('code');
-  navigator.clipboard.writeText(code.textContent)
-    .then(() => { btn.textContent = '✅ Скопировано'; setTimeout(() => btn.textContent = '📋 Копировать', 1500); });
+async function buildAndDownloadZip(files, label) {
+  if (!window.JSZip) await loadScript(JSZIP_CDN);
+  const zip = new JSZip();
+  Object.entries(files).forEach(([k, v]) => zip.file(k, v));
+  const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `${label || 'vibe-output'}.zip`;
+  a.click(); URL.revokeObjectURL(url);
 }
 
 // ── History ────────────────────────────────────────────────────────────────────
-function addHistory(prompt, folder, runUrl, mode, fileName, tokensUsed) {
-  const h = JSON.parse(localStorage.getItem('vc2-history') || '[]');
-  h.unshift({ prompt, folder, runUrl, mode, fileName, date: new Date().toISOString(), tokensUsed: tokensUsed || 0 });
-  localStorage.setItem('vc2-history', JSON.stringify(h.slice(0, 20)));
-  loadHistory();
+function addToHistory(prompt, inputs, runId) {
+  const hist = ls('vc2_history', []);
+  hist.unshift({
+    id: Date.now(),
+    prompt: prompt.slice(0,80),
+    repo: inputs.target_repo,
+    mode: inputs.agent_mode,
+    runId,
+    ts: new Date().toISOString()
+  });
+  lsSet('vc2_history', hist.slice(0,50));
+  renderHistory();
 }
-function loadHistory() {
-  const h  = JSON.parse(localStorage.getItem('vc2-history') || '[]');
-  const el = document.getElementById('history-list');
-  if (!h.length) { el.innerHTML = '<div class="empty-history">Генераций ещё не было</div>'; return; }
-  el.innerHTML = h.map(item => `
-    <div class="hist-item" onclick="openHistFolder('${esc(item.folder)}')">
-      <div class="hist-mode">${item.mode === 'improve' ? '🔧' : '✨'}</div>
-      <div class="hist-body">
-        <div class="hist-prompt">${esc((item.mode==='improve' ? '📄 '+item.fileName+' — ' : '') + (item.prompt || '(без описания)'))}</div>
-        <div class="hist-meta">${new Date(item.date).toLocaleString('ru')} · <a href="${esc(item.runUrl||'#')}" target="_blank" onclick="event.stopPropagation()">Actions</a>${item.tokensUsed > 0 ? ` · <span style="color:var(--purple)">${(item.tokensUsed/1000).toFixed(1)}K токенов</span>` : ''}</div>
+
+function renderHistory() {
+  const hist = ls('vc2_history', []);
+  const container = document.getElementById('history-list');
+  if (hist.length === 0) {
+    container.innerHTML = '<div style="color:var(--text3);font-size:12px;text-align:center;padding:30px">No history yet</div>';
+    return;
+  }
+  container.innerHTML = hist.map(h => `
+    <div class="hist-item">
+      <div class="hist-title">${escHtml(h.prompt)}</div>
+      <div class="hist-meta">
+        <span>${h.repo || 'no repo'}</span>
+        <span>${h.mode}</span>
+        <span>${new Date(h.ts).toLocaleDateString()}</span>
       </div>
+      ${h.runId ? `<div class="hist-actions">
+        <a href="https://github.com/B3B3097/VIBE-CODE/actions/runs/${h.runId}" target="_blank"
+          class="hist-btn">View Run</a>
+      </div>` : ''}
     </div>`).join('');
 }
-async function openHistFolder(folder) {
-  const raw = await getRepoFile(`${folder}/_progress.json`);
-  if (!raw) { window.open(`https://github.com/${cfg.repo}/tree/main/${folder}`, '_blank'); return; }
-  const progress = JSON.parse(raw);
-  await renderResult(progress);
-  const files = await listFolder(folder);
-  if (files.length) {
-    await loadFiles(folder, files);
-    // Re-inject ZIP button with real file list
-    const zipBtnId = 'zip-hist-' + Date.now();
-    const rl = document.getElementById('result-links');
-    if (rl && !rl.querySelector('.zip-btn')) {
-      const zbtn = document.createElement('button');
-      zbtn.className = 'zip-btn'; zbtn.id = zipBtnId;
-      zbtn.textContent = '⬇️ Скачать ZIP';
-      zbtn.onclick = function() { downloadZip(folder, files.map(f=>f.name).filter(n=>!n.startsWith('_')), this); };
-      rl.appendChild(zbtn);
-    }
-  }
-  document.getElementById('result-card').scrollIntoView({ behavior: 'smooth' });
+
+// ── Agent Status ───────────────────────────────────────────────────────────────
+function resetAgentStatus() {
+  ['planner','coder','git'].forEach(a => {
+    document.getElementById(`dot-${a}`).className = 'agent-dot';
+    document.getElementById(`lbl-${a}`).style.color = 'var(--text3)';
+  });
+  document.getElementById('token-count').textContent = '0 tokens';
+  document.getElementById('agent-trace-list').innerHTML =
+    '<div style="color:var(--text3);font-size:12px;text-align:center;padding:30px">Waiting for run…</div>';
 }
 
-// ── Main ───────────────────────────────────────────────────────────────────────
+function updateAgentStatus(wfStatus, mode) {
+  if (wfStatus === 'in_progress') {
+    if (mode === 'multi') {
+      setDot('planner','active','Planning…');
+    } else {
+      setDot('coder','active','Generating…');
+    }
+  } else if (wfStatus === 'completed') {
+    ['planner','coder','git'].forEach(a => setDot(a,'',''));
+  }
+}
+
+function setDot(agent, cls, label) {
+  const dot = document.getElementById(`dot-${agent}`);
+  const lbl = document.getElementById(`lbl-${agent}`);
+  dot.className = 'agent-dot' + (cls ? ` ${cls}` : '');
+  if (label) { lbl.textContent = label; lbl.style.color = 'var(--text)'; }
+}
+
+function addTraceItem(state, message, tokens) {
+  const list = document.getElementById('agent-trace-list');
+  if (list.children.length === 1 && list.firstChild.tagName !== 'DIV'.includes('trace')) {
+    list.innerHTML = '';
+  }
+  const stateColors = {
+    planning:'state-planning', coding:'state-coding', reviewing:'state-reviewing',
+    committing:'state-committing', releasing:'state-releasing', done:'state-done'
+  };
+  const div = document.createElement('div');
+  div.className = 'trace-item';
+  div.innerHTML = `
+    <div class="trace-header">
+      <span class="trace-state ${stateColors[state]||''}">${state}</span>
+    </div>
+    <div class="trace-msg">${escHtml(message)}</div>
+    ${tokens ? `<div class="trace-tokens">+${tokens} tokens</div>` : ''}`;
+  list.appendChild(div);
+}
+
+// ── UI helpers ─────────────────────────────────────────────────────────────────
+function setSending(b) {
+  document.getElementById('send-btn').disabled = b;
+  document.getElementById('prompt-input').disabled = b;
+}
+
+function cycleIter() {
+  const opts = [1,2,3,5];
+  iters = opts[(opts.indexOf(iters)+1) % opts.length];
+  document.getElementById('iter-label').textContent = `${iters} iter`;
+}
+
+function editBudget() {
+  const v = prompt('Total token budget (0 = auto):', tokenBudget);
+  if (v !== null) {
+    tokenBudget = parseInt(v)||0;
+    document.getElementById('budget-label').textContent =
+      tokenBudget ? `${(tokenBudget/1000).toFixed(1)}K budget` : 'Auto budget';
+  }
+}
+
+function attachFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  attachedFile = file;
+  const reader = new FileReader();
+  reader.onload = e => { attachedContent = e.target.result; };
+  reader.readAsText(file);
+  document.getElementById('file-tag-name').textContent = file.name;
+  document.getElementById('file-tag').style.display = 'flex';
+}
+
+function clearFile() {
+  attachedFile = null; attachedContent = '';
+  document.getElementById('file-tag').style.display = 'none';
+  document.getElementById('file-input').value = '';
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+}
+
+function togglePanel() {
+  const p = document.getElementById('right-panel');
+  panelOpen = !panelOpen;
+  p.classList.toggle('hidden', !panelOpen);
+}
+
+function showTab(name) {
+  activeTab = name;
+  ['settings','notes','trace','history'].forEach(t => {
+    document.getElementById(`tab-${t}`).style.display = t === name ? '' : 'none';
+  });
+  document.querySelectorAll('.rpanel-tab').forEach((btn,i) => {
+    const tabs = ['settings','notes','trace','history'];
+    btn.classList.toggle('active', tabs[i] === name);
+  });
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (type ? ` ${type}` : '');
+  setTimeout(() => el.classList.remove('show'), 2800);
+}
+
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function generate() {
-  const prompt  = document.getElementById('prompt').value.trim();
-  const iters      = +document.getElementById('q-iters').value  || cfg.iters;
-  const maxTok     = +document.getElementById('q-maxtok').value || cfg.maxtok;
-  const totalBudget = +(document.getElementById('q-budget')?.value || cfg.budget || 0);
-  const targetRepo  = cfg.targetRepo || '';
-  const isImprove = currentMode === 'improve';
-
-  // Validation
-  if (!cfg.token) { alert('Укажите GitHub Token в ⚙️ Настройках!'); openDrawer(); return; }
-  if (!isImprove && !prompt) { alert('Введите описание задачи!'); return; }
-  if (isImprove && !attachedFile) { alert('Прикрепите файл для улучшения!'); return; }
-
-  // Encode file if attached
-  let fileNameArg = '', fileContentB64 = '';
-  if (isImprove && attachedFile) {
-    fileNameArg    = attachedFile.name;
-    // Base64 encode (TextEncoder → Uint8Array → base64)
-    const bytes    = new TextEncoder().encode(attachedFile.content);
-    let binary     = '';
-    bytes.forEach(b => binary += String.fromCharCode(b));
-    fileContentB64 = btoa(binary);
-    // max ~100KB of base64 (~75KB raw) — GitHub inputs have no doc'd limit but we warn
-    if (fileContentB64.length > 1400000) {
-      alert('Файл слишком большой для передачи через workflow input (> ~1 МБ). Сократите файл.'); return;
-    }
-  }
-
-  const improveHint = document.getElementById('improve-hint')?.value.trim() || '';
-  const finalPrompt = isImprove
-    ? (improveHint || prompt || 'Проверь и улучши этот файл — исправь баги, улучши качество кода, добавь обработку ошибок.')
-    : prompt;
-
-  const session = 's' + Date.now();
-  const since   = new Date();
-
-  // Reset UI
-  document.getElementById('gen-btn').disabled    = true;
-  document.getElementById('status-log').textContent = '';
-  showCard('status-card', true);
-  showCard('result-card', false);
-  document.getElementById('files-grid').innerHTML = '';
-  document.getElementById('actions-link').style.display = 'none';
-
-  const modeLabel = isImprove ? `🔧 Улучшение: ${fileNameArg}` : '✨ Генерация';
-  const budgetLabel = totalBudget > 0 ? `  💰 ${(totalBudget/1000).toFixed(0)}K токенов` : '';
-  const repoLabel   = targetRepo ? `  🔀 → ${targetRepo}` : '';
-  setStatus(`🚀 Запуск workflow...`, modeLabel + budgetLabel + repoLabel, 5);
-
-  try {
-    await triggerWorkflow(finalPrompt, session, iters, maxTok, fileNameArg, fileContentB64, totalBudget, targetRepo);
-    setStatus('⏳ Ожидание runner...', 'GitHub Actions runner стартует', 10,
-      `[${new Date().toLocaleTimeString()}] Workflow запущен (${isImprove ? 'improve' : 'generate'} mode)`);
-  } catch(e) {
-    setStatus('❌ Ошибка запуска', e.message, 0,
-      `ERROR: ${e.message}`);
-    document.getElementById('gen-btn').disabled = false;
-    return;
-  }
-
-  // Find run
-  let run = null;
-  for (let i = 0; i < 20; i++) {
-    await sleep(3000);
-    run = await getLatestRun(since);
-    if (run) break;
-  }
-  if (!run) {
-    setStatus('❌ Не удалось найти run', 'Проверьте Actions вручную', 0);
-    document.getElementById('gen-btn').disabled = false;
-    return;
-  }
-
-  const runUrl  = run.html_url;
-  const link    = document.getElementById('actions-link');
-  link.href     = runUrl;
-  link.style.display = 'inline-block';
-  setStatus('🤖 Модель работает...', isImprove ? `Анализирует ${fileNameArg}...` : 'Генерирует код...', 20,
-    `[${new Date().toLocaleTimeString()}] Run #${run.run_number} → ${runUrl}`);
-
-  // Poll
-  let elapsed = 0;
-  const TICK  = 10000;
-  const msgs  = [
-    [60,  '📥 Возможно, первый запуск — загружается модель (~4.7 GB, ~5-10 мин)...'],
-    [180, `🧠 Модель ${isImprove ? 'анализирует файл' : 'пишет код'}...`],
-    [360, '🔄 Тестирование и доработка...'],
-    [600, '⏳ Большой запрос — модель работает...'],
-  ];
-
-  const poll = setInterval(async () => {
-    elapsed += TICK / 1000;
-    const pct = Math.min(90, 20 + elapsed / 6);
-    document.getElementById('prog').style.width = pct + '%';
-
-    for (const [sec, msg] of msgs)
-      if (Math.abs(elapsed - sec) < 12)
-        setStatus('🤖 Модель работает...', msg, pct, `[${elapsed|0}s] ${msg}`);
-
-    const r = await ghFetch(`/repos/${cfg.repo}/actions/runs/${run.id}`);
-    if (!r || r.status !== 'completed') return;
-    clearInterval(poll);
-
-    if (r.conclusion === 'success') {
-      setStatus('✅ Готово! Загружаю...', '', 95,
-        `[${elapsed|0}s] Завершён успешно!`);
-      await sleep(3000);
-
-      // Find newest output folder
-      const outDir = await ghFetch(`/repos/${cfg.repo}/contents/output`);
-      let folder   = null;
-      if (outDir && Array.isArray(outDir)) {
-        const dirs = outDir.filter(d => d.type === 'dir').sort((a,b) => b.name.localeCompare(a.name));
-        folder     = dirs[0]?.path;
-      }
-
-      if (folder) {
-        const progressRaw = await getRepoFile(`${folder}/_progress.json`);
-        const progress    = progressRaw ? JSON.parse(progressRaw) : { folder, files: [], mode: currentMode };
-        await renderResult(progress);
-        const files = await listFolder(folder);
-        if (files.length) await loadFiles(folder, files);
-        const toksUsed = progress?.tokensUsed || 0;
-        addHistory(finalPrompt, folder, runUrl, currentMode, fileNameArg, toksUsed);
-        document.getElementById('prog').style.width = '100%';
-        document.getElementById('result-card').scrollIntoView({ behavior: 'smooth' });
-      } else {
-        setStatus('⚠️ Файлы не найдены в output/', 'Смотрите лог Actions', 100);
-      }
-    } else {
-      setStatus(`❌ Ошибка: ${r.conclusion}`, 'Смотрите лог Actions', 0,
-        `Статус: ${r.conclusion}`);
-    }
-    document.getElementById('gen-btn').disabled = false;
-  }, TICK);
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
 }
 
-// ── ZIP Download ──────────────────────────────────────────────────────────────
-async function downloadZip(folder, fileList, btn) {
-  if (!fileList || !fileList.length) {
-    // Fallback: list folder from GitHub API
-    const items = await listFolder(folder);
-    fileList = items.map(f => f.name).filter(n => !n.startsWith('_'));
-  }
-  if (!fileList.length) { alert('Нет файлов для скачивания'); return; }
-
-  const origText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = '⏳ Создаю ZIP...';
-
-  try {
-    const zip = new JSZip();
-    const folderName = folder.split('/').pop() || 'vibecode';
-    const root = zip.folder(folderName);
-
-    for (const name of fileList) {
-      btn.textContent = `⏳ ${name}`;
-      const content = await getRepoFile(`${folder}/${name}`);
-      if (content !== null) root.file(name, content);
-    }
-
-    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${folderName}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
-
-    btn.textContent = '✅ Скачано!';
-    setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 2500);
-  } catch(e) {
-    btn.textContent = '❌ Ошибка';
-    console.error('ZIP error:', e);
-    setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 2000);
-  }
-}
-
-// ── Init ──────────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+// ── Init ───────────────────────────────────────────────────────────────────────
+(function init() {
   loadSettings();
-  document.getElementById('prompt').addEventListener('keydown', e => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generate();
+  renderChatTree();
+  renderHistory();
+  showTab('settings');
+
+  // Load GitHub user info
+  const token = ls('vc2_settings',{}).gh_token || '';
+  if (token) {
+    fetch('https://api.github.com/user', { headers:{ Authorization:`Bearer ${token}` } })
+      .then(r=>r.json())
+      .then(u => {
+        document.getElementById('owner-info').textContent = `@${u.login || 'connected'}`;
+      }).catch(()=>{});
+  }
+
+  // Close modals on overlay click
+  document.querySelectorAll('.modal-overlay').forEach(el => {
+    el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
   });
-  // Click on attach zone (not on button/clear) → open file dialog
-  document.getElementById('attach-zone').addEventListener('click', e => {
-    if (e.target.id === 'attach-zone' || e.target.classList.contains('drop-hint'))
-      document.getElementById('file-input').click();
-  });
-});
+})();
 </script>
 </body>
 </html>
