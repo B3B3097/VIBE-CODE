@@ -1,0 +1,129 @@
+name: 🔥 Keep Model Cache Warm
+
+# Runs every 5 days so the 7-day Actions cache never expires.
+# Also triggered manually to pre-warm after repo clone.
+
+on:
+  schedule:
+    - cron: '0 3 */5 * *'   # 03:00 UTC every 5th day
+  workflow_dispatch:
+    inputs:
+      model_single:
+        description: 'Single-agent model to cache'
+        default: 'qwen2.5-coder:7b'
+      model_planner:
+        description: 'Planner model to cache'
+        default: 'qwen2.5:7b'
+      include_bonsai:
+        description: 'Also warm Bonsai 27B GGUF cache'
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  warm:
+    name: Warm model caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.ai/install.sh | sh
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:11434/api/tags > /dev/null 2>&1 && break
+            sleep 2
+          done
+          echo "✅ Ollama ready"
+
+      # ── Single-agent model ──────────────────────────────────────
+      - name: Restore single-agent model cache
+        id: cache-single
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-${{ inputs.model_single || 'qwen2.5-coder:7b' }}-v1
+          restore-keys: ollama-${{ inputs.model_single || 'qwen2.5-coder:7b' }}-
+
+      - name: Pull / verify single-agent model
+        run: |
+          MODEL="${{ inputs.model_single || 'qwen2.5-coder:7b' }}"
+          if [ "${{ steps.cache-single.outputs.cache-hit }}" = "true" ]; then
+            echo "📦 Cache hit — warming $MODEL"
+            echo "hello" | timeout 90 ollama run "$MODEL" || true
+          else
+            echo "⬇️  Downloading $MODEL"
+            ollama pull "$MODEL"
+          fi
+          ollama list
+
+      # ── Planner model ────────────────────────────────────────────
+      - name: Restore planner model cache
+        id: cache-planner
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-${{ inputs.model_planner || 'qwen2.5:7b' }}-v1
+          restore-keys: ollama-${{ inputs.model_planner || 'qwen2.5:7b' }}-
+
+      - name: Pull / verify planner model
+        run: |
+          MODEL="${{ inputs.model_planner || 'qwen2.5:7b' }}"
+          if [ "${{ steps.cache-planner.outputs.cache-hit }}" = "true" ]; then
+            echo "📦 Cache hit — warming $MODEL"
+            echo "hello" | timeout 90 ollama run "$MODEL" || true
+          else
+            echo "⬇️  Downloading $MODEL"
+            ollama pull "$MODEL"
+          fi
+          ollama list
+
+      # ── Bonsai 27B GGUF ──────────────────────────────────────────
+      - name: Restore Bonsai 27B GGUF cache
+        id: cache-bonsai
+        if: ${{ inputs.include_bonsai != 'false' }}
+        uses: actions/cache@v4
+        with:
+          path: /tmp/bonsai-gguf
+          key: bonsai-27b-q1-v1
+
+      - name: Download Bonsai 27B GGUF (if cache missed)
+        if: ${{ inputs.include_bonsai != 'false' && steps.cache-bonsai.outputs.cache-hit != 'true' }}
+        run: |
+          echo "⬇️  Downloading Bonsai 27B Q1_0 (~3.6 GB)…"
+          pip install -q huggingface_hub
+          mkdir -p /tmp/bonsai-gguf
+          python3 -c "
+          from huggingface_hub import hf_hub_download
+          path = hf_hub_download(
+              repo_id='prism-ml/Bonsai-27B-gguf',
+              filename='Bonsai-27B-Q1_0.gguf',
+              local_dir='/tmp/bonsai-gguf'
+          )
+          import os
+          size = os.path.getsize(path)
+          print(f'✅ Downloaded: {path}  ({size/1e9:.2f} GB)')
+          "
+
+      - name: Verify Bonsai GGUF cache
+        if: ${{ inputs.include_bonsai != 'false' && steps.cache-bonsai.outputs.cache-hit == 'true' }}
+        run: |
+          ls -lh /tmp/bonsai-gguf/ && echo "✅ Bonsai cache intact"
+
+      # ── Summary ──────────────────────────────────────────────────
+      - name: Cache status summary
+        if: always()
+        run: |
+          echo "================================"
+          echo "   🔥 Cache Warm Summary"
+          echo "================================"
+          echo "Single model : ${{ steps.cache-single.outputs.cache-hit == 'true' && 'HIT ✅' || 'MISS — downloaded ⬇️' }}"
+          echo "Planner model: ${{ steps.cache-planner.outputs.cache-hit == 'true' && 'HIT ✅' || 'MISS — downloaded ⬇️' }}"
+          echo "Bonsai GGUF  : ${{ steps.cache-bonsai.outputs.cache-hit == 'true' && 'HIT ✅' || 'MISS — downloaded ⬇️' }}"
+          echo "Next auto-run: in 5 days (cron)"
+          echo "================================"
