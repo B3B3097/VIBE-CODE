@@ -484,6 +484,109 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
   #sidebar{display:none}
   #right-panel{display:none}
 }
+
+/* ─── Balance Widget ───────────────────────────────── */
+#balance-widget {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg1);
+}
+.bw-row { display: flex; align-items: center; justify-content: space-between; }
+.bw-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; }
+.bw-value { font-size: 15px; font-weight: 700; color: var(--accent3); font-family: 'JetBrains Mono', monospace; }
+.bw-value.infinite { color: var(--accent2); }
+.bw-sub { font-size: 10px; color: var(--text3); margin-top: 1px; }
+.bw-topup {
+  margin-top: 7px; width: 100%; padding: 6px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent3), #00b894);
+  border: none; color: #000; font-size: 11px; font-weight: 700;
+  cursor: pointer; transition: .15s;
+}
+.bw-topup:hover { opacity: .85; }
+.bw-register {
+  margin-top: 7px; width: 100%; padding: 6px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border: none; color: #fff; font-size: 11px; font-weight: 700;
+  cursor: pointer; transition: .15s;
+}
+.bw-register:hover { opacity: .85; }
+.bw-user { font-size: 11px; color: var(--text2); margin-top: 4px; }
+.bw-user .bw-login { color: var(--accent); font-weight: 600; }
+
+/* ─── Token Cost Badge ─────────────────────────────── */
+.token-cost-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 20px;
+  background: rgba(0,229,192,.12); border: 1px solid rgba(0,229,192,.25);
+  font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  color: var(--accent3); margin-top: 8px;
+}
+.token-cost-badge .tc-cost { color: var(--yellow); }
+
+/* ─── Auth overlay ─────────────────────────────────── */
+#auth-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.85); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+}
+#auth-overlay.hidden { display: none; }
+.auth-box {
+  background: var(--bg1); border: 1px solid var(--border2);
+  border-radius: 20px; padding: 32px; width: 440px; max-width: 95vw;
+  box-shadow: 0 24px 64px rgba(0,0,0,.6);
+}
+.auth-logo { text-align: center; margin-bottom: 20px; }
+.auth-logo .logo { width: 48px; height: 48px; font-size: 18px; margin: 0 auto 8px; }
+.auth-logo h2 { font-size: 20px; font-weight: 700; }
+.auth-logo p { font-size: 12px; color: var(--text3); margin-top: 4px; }
+.auth-step { display: none; }
+.auth-step.active { display: block; }
+.auth-divider {
+  text-align: center; color: var(--text3); font-size: 11px;
+  margin: 14px 0; position: relative;
+}
+.auth-divider::before, .auth-divider::after {
+  content: ''; position: absolute; top: 50%; width: 42%;
+  height: 1px; background: var(--border);
+}
+.auth-divider::before { left: 0; }
+.auth-divider::after { right: 0; }
+.auth-bonus {
+  background: rgba(0,229,192,.08); border: 1px solid rgba(0,229,192,.25);
+  border-radius: 10px; padding: 10px 14px; margin-bottom: 14px;
+  font-size: 12px; color: var(--accent3); text-align: center;
+}
+.auth-bonus strong { font-size: 16px; }
+
+/* ─── Top-up Modal ─────────────────────────────────── */
+.topup-amounts {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 14px 0;
+}
+.topup-amt {
+  padding: 10px 0; border-radius: 9px; border: 1px solid var(--border);
+  background: var(--bg2); font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: .15s; text-align: center; color: var(--text);
+}
+.topup-amt:hover, .topup-amt.selected { border-color: var(--accent3); color: var(--accent3);
+  background: rgba(0,229,192,.1); }
+.topup-invoice-area { margin-top: 12px; }
+.topup-pay-btn {
+  display: block; width: 100%; padding: 12px;
+  background: linear-gradient(135deg, var(--accent3), #00b894);
+  border: none; border-radius: 10px; color: #000; font-size: 14px;
+  font-weight: 700; cursor: pointer; text-align: center; text-decoration: none;
+  margin-top: 10px; transition: .15s;
+}
+.topup-pay-btn:hover { opacity: .85; }
+.topup-check-btn {
+  display: block; width: 100%; padding: 9px;
+  background: var(--bg2); border: 1px solid var(--border2); border-radius: 10px;
+  color: var(--text2); font-size: 13px; font-weight: 600; cursor: pointer;
+  margin-top: 8px; transition: .15s;
+}
+.topup-check-btn:hover { background: var(--bg3); }
+
 </style>
 </head>
 <body>
@@ -507,8 +610,24 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
         <div id="chat-list"></div>
       </div>
     </div>
-    <div style="padding:10px 12px;border-top:1px solid var(--border);font-size:11px;color:var(--text3)">
-      <span id="owner-info">Not connected</span>
+    <div id="balance-widget">
+      <div class="bw-row">
+        <div>
+          <div class="bw-label">Balance</div>
+          <div class="bw-value" id="bw-balance">—</div>
+          <div class="bw-sub" id="bw-sub">Not registered</div>
+        </div>
+        <div style="text-align:right;font-size:18px" id="bw-icon">🔒</div>
+      </div>
+      <div class="bw-user" id="bw-user" style="display:none">
+        Logged in as <span class="bw-login" id="bw-login"></span>
+      </div>
+      <button class="bw-register" id="bw-register-btn" onclick="openAuthOverlay()">
+        🔑 Connect Account
+      </button>
+      <button class="bw-topup" id="bw-topup-btn" style="display:none" onclick="openTopupModal()">
+        ＋ Add Funds
+      </button>
     </div>
   </div>
 
@@ -766,6 +885,117 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
   </div>
 </div>
 
+
+<!-- ─── Auth Overlay ──────────────────────────────────────────── -->
+<div id="auth-overlay" class="hidden">
+  <div class="auth-box">
+    <div class="auth-logo">
+      <div class="logo">VC</div>
+      <h2>VIBE-CODE</h2>
+      <p>Multi-Agent Code Platform</p>
+    </div>
+
+    <!-- Step 1: Enter GitHub token -->
+    <div class="auth-step active" id="auth-step-1">
+      <div class="auth-bonus">🎁 New users get <strong>$1.00</strong> free balance on sign-up!</div>
+      <div class="setting-label" style="margin-bottom:6px">Your GitHub Token (PAT)</div>
+      <input class="setting-input" type="password" id="auth-gh-token"
+        placeholder="ghp_…  (repo scope)"/>
+      <div class="setting-hint" style="margin-top:4px">
+        Used to identify your account and trigger workflows.
+        <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank"
+          style="color:var(--accent)">Generate token →</a>
+      </div>
+      <div style="margin-top:14px">
+        <button class="btn btn-primary" style="width:100%" onclick="authCheckToken()">
+          Continue →
+        </button>
+      </div>
+      <div id="auth-err-1" style="color:var(--red);font-size:12px;margin-top:8px;display:none"></div>
+    </div>
+
+    <!-- Step 2: Registration code (for new users, non-owner) -->
+    <div class="auth-step" id="auth-step-2">
+      <div class="auth-bonus" style="background:rgba(99,120,255,.1);border-color:rgba(99,120,255,.3);color:var(--accent)">
+        📱 Get your code from the Telegram bot
+      </div>
+      <div style="text-align:center;margin-bottom:14px">
+        <a href="https://t.me/vibeCodeRegBot" target="_blank"
+          style="display:inline-block;padding:9px 18px;background:rgba(99,120,255,.15);
+          border:1px solid var(--accent);border-radius:10px;color:var(--accent);
+          font-size:13px;font-weight:600;text-decoration:none">
+          🤖 Open Telegram Bot
+        </a>
+      </div>
+      <div class="setting-label" style="margin-bottom:6px">Registration Code</div>
+      <input class="setting-input" id="auth-reg-code"
+        placeholder="VIBE-XXXXXX" style="text-transform:uppercase;letter-spacing:.1em;font-family:'JetBrains Mono',monospace"/>
+      <div class="auth-divider">or</div>
+      <div class="setting-hint">
+        Start <a href="https://t.me/vibeCodeRegBot" target="_blank" style="color:var(--accent)">@vibeCodeRegBot</a>
+        → send /code → paste here
+      </div>
+      <div style="margin-top:14px;display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="authBack()">← Back</button>
+        <button class="btn btn-primary" style="flex:1" onclick="authRegister()">
+          Register &amp; Get $1.00 →
+        </button>
+      </div>
+      <div id="auth-err-2" style="color:var(--red);font-size:12px;margin-top:8px;display:none"></div>
+    </div>
+
+    <!-- Step 3: Success -->
+    <div class="auth-step" id="auth-step-3" style="text-align:center">
+      <div style="font-size:40px;margin-bottom:12px" id="auth-success-icon">✅</div>
+      <h3 id="auth-success-title" style="margin-bottom:8px">Welcome!</h3>
+      <p id="auth-success-msg" style="color:var(--text2);font-size:13px;margin-bottom:20px"></p>
+      <button class="btn btn-primary" style="width:100%" onclick="closeAuthOverlay()">
+        Start Coding →
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Top-up Modal ──────────────────────────────────────────── -->
+<div class="modal-overlay" id="topup-modal">
+  <div class="modal">
+    <h3>💰 Add Funds</h3>
+    <p style="color:var(--text2);font-size:12px;margin-bottom:14px">
+      Pay with USDT via CryptoBot. Funds credited instantly after confirmation.
+    </p>
+    <div class="setting-label">Select amount (USD)</div>
+    <div class="topup-amounts">
+      <button class="topup-amt" onclick="selectTopupAmt(1)">$1</button>
+      <button class="topup-amt" onclick="selectTopupAmt(5)">$5</button>
+      <button class="topup-amt" onclick="selectTopupAmt(10)">$10</button>
+      <button class="topup-amt" onclick="selectTopupAmt(25)">$25</button>
+      <button class="topup-amt" onclick="selectTopupAmt(50)">$50</button>
+      <button class="topup-amt" onclick="selectTopupAmt(100)">$100</button>
+    </div>
+    <div class="setting-row">
+      <div class="setting-hint" style="margin-bottom:4px">Or enter custom amount ($)</div>
+      <input class="setting-input" type="number" id="topup-custom" min="1" max="10000"
+        placeholder="e.g. 20" oninput="selectTopupAmt(parseFloat(this.value)||0, true)"/>
+    </div>
+    <div class="topup-invoice-area" id="topup-invoice-area" style="display:none">
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;
+        padding:12px;font-size:12px;color:var(--text2);margin-bottom:6px" id="topup-invoice-info"></div>
+      <a id="topup-pay-link" class="topup-pay-btn" href="#" target="_blank">
+        🔗 Pay with CryptoBot
+      </a>
+      <button class="topup-check-btn" onclick="checkTopupPayment()">
+        ✓ I've paid — check now
+      </button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('topup-modal')">Cancel</button>
+      <button class="btn btn-primary" id="topup-create-btn" onclick="createTopupInvoice()">
+        Generate Invoice
+      </button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -774,6 +1004,12 @@ const JSZIP_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min
 
 // ── State ──────────────────────────────────────────────────────────────────────
 let GH_OWNER = '', GH_REPO_FULL = '', GH_TOKEN_LOCAL = '';
+
+// ── VIBE-CODE Backend ──────────────────────────────────────────────────────────
+const VIBE_API = 'https://bdd03cbe-5760-4cb8-a982-d85cce2c639e-00-3b6qyyy2oxtz0.pike.replit.dev/api';
+let vibeUser = null;  // { github_login, is_owner, balance_cents, balance_usd }
+let topupSelectedAmt = 0;
+let topupInvoiceId = null;
 let currentChatId = null;
 let agentMode = 'single';  // 'single' | 'multi'
 let iters = 1, tokenBudget = 0;
@@ -1207,6 +1443,8 @@ async function loadResults(runId, prompt, inputs) {
     ).then(r=>r.json());
     const arts = artsResp.artifacts || [];
 
+    if (!window._runArtifactTokens) window._runArtifactTokens = {};
+    window._runArtifactTokens[runId] = 0;
     for (const art of arts) {
       const name = art.name;
       // Download the zip
@@ -1215,7 +1453,8 @@ async function loadResults(runId, prompt, inputs) {
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
       const zipBlob = await zipResp.blob();
-      await processArtifactZip(zipBlob, name);
+      const artTokens = await processArtifactZip(zipBlob, name);
+      if (artTokens) window._runArtifactTokens[runId] = (window._runArtifactTokens[runId] || 0) + artTokens;
     }
     if (arts.length === 0) {
       appendMsgDOM({ role:'system', sender:'System',
@@ -1224,6 +1463,26 @@ async function loadResults(runId, prompt, inputs) {
   } catch(e) {
     appendMsgDOM({ role:'system', sender:'System',
       content:`⚠️ Could not load results: ${e.message}`, time: now() });
+  }
+  // Deduct token cost from balance
+  let totalTokensRun = 0;
+  // Sum tokens from all artifacts (stored in window._lastArtifactTokens)
+  if (window._runArtifactTokens && window._runArtifactTokens[runId]) {
+    totalTokensRun = window._runArtifactTokens[runId];
+    delete window._runArtifactTokens[runId];
+  }
+  if (totalTokensRun > 0 && vibeUser) {
+    const deductResult = await deductTokenCost(totalTokensRun, runId);
+    if (deductResult && !deductResult.is_owner) {
+      const costStr = deductResult.cost_usd;
+      const balStr  = deductResult.balance_usd;
+      appendMsgDOM({ role:'system', sender:'💳 Billing',
+        content: `<span class="token-cost-badge">` +
+          `🧮 ${totalTokensRun.toLocaleString()} tokens · ` +
+          `<span class="tc-cost">-$${costStr}</span>` +
+          ` · balance: $${balStr}</span>`,
+        time: now() });
+    }
   }
   addToHistory(prompt, inputs, runId);
 }
@@ -1244,6 +1503,15 @@ async function processArtifactZip(blob, artifactName) {
 
   const releaseNotes = files['_release_notes.md'] || '';
   const prUrl = files['_pr_url.txt'] || '';
+  // Extract total_tokens from progress file for billing
+  let artifactTokens = 0;
+  try {
+    const progress = files['_progress.json'];
+    if (progress) {
+      const p = JSON.parse(progress);
+      artifactTokens = p.total_tokens || 0;
+    }
+  } catch {}
 
   // Display code files
   const codeFiles = Object.entries(files).filter(([k]) => !k.startsWith('_'));
@@ -1276,6 +1544,8 @@ async function processArtifactZip(blob, artifactName) {
     document.getElementById('pr-link-area').innerHTML =
       `<a class="pr-link" href="${prUrl}" target="_blank">🔗 View Pull Request</a>`;
   }
+
+  return artifactTokens;
 }
 
 function displayDownloadBtn(files, label) {
@@ -1671,6 +1941,251 @@ function getApiKeyInputs() {
   return out;
 }
 
+// ── VIBE Auth & Balance ──────────────────────────────────────────────────────
+async function vibeApiFetch(path, opts = {}) {
+  const token = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
+  return fetch(VIBE_API + path, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      ...(opts.headers || {}),
+    },
+  });
+}
+
+async function checkVibeAuth() {
+  const token = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
+  if (!token) { updateBalanceWidget(null); return; }
+  try {
+    const r = await vibeApiFetch('/auth/me');
+    if (r.ok) {
+      vibeUser = await r.json();
+      updateBalanceWidget(vibeUser);
+    } else {
+      vibeUser = null;
+      updateBalanceWidget(null);
+    }
+  } catch { updateBalanceWidget(null); }
+}
+
+function updateBalanceWidget(user) {
+  const bwBalance = document.getElementById('bw-balance');
+  const bwSub     = document.getElementById('bw-sub');
+  const bwIcon    = document.getElementById('bw-icon');
+  const bwUser    = document.getElementById('bw-user');
+  const bwLogin   = document.getElementById('bw-login');
+  const regBtn    = document.getElementById('bw-register-btn');
+  const topupBtn  = document.getElementById('bw-topup-btn');
+
+  if (!user) {
+    bwBalance.textContent = '—';
+    bwBalance.className = 'bw-value';
+    bwSub.textContent = 'Not registered';
+    bwIcon.textContent = '🔒';
+    bwUser.style.display = 'none';
+    regBtn.style.display = 'block';
+    topupBtn.style.display = 'none';
+    return;
+  }
+
+  bwLogin.textContent = '@' + user.github_login;
+  bwUser.style.display = 'block';
+  regBtn.style.display = 'none';
+  topupBtn.style.display = 'block';
+
+  if (user.is_owner) {
+    bwBalance.textContent = '∞';
+    bwBalance.className = 'bw-value infinite';
+    bwSub.textContent = 'Owner — unlimited';
+    bwIcon.textContent = '👑';
+    topupBtn.style.display = 'none';
+  } else {
+    const usd = (user.balance_cents / 100).toFixed(2);
+    bwBalance.textContent = '$' + usd;
+    bwBalance.className = 'bw-value' + (user.balance_cents < 10 ? ' ' : '');
+    bwSub.textContent = '$0.15 / 1M tokens';
+    bwIcon.textContent = user.balance_cents > 50 ? '💰' : (user.balance_cents > 0 ? '⚠️' : '❌');
+  }
+}
+
+// ── Auth Overlay ──────────────────────────────────────────────────────────────
+function openAuthOverlay() {
+  document.getElementById('auth-overlay').classList.remove('hidden');
+  // Pre-fill if token already entered in settings
+  const token = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
+  if (token) document.getElementById('auth-gh-token').value = token;
+  showAuthStep(1);
+}
+function closeAuthOverlay() {
+  document.getElementById('auth-overlay').classList.add('hidden');
+}
+function showAuthStep(n) {
+  [1,2,3].forEach(i => {
+    document.getElementById('auth-step-' + i).classList.toggle('active', i === n);
+  });
+}
+function authBack() { showAuthStep(1); }
+
+async function authCheckToken() {
+  const token = document.getElementById('auth-gh-token').value.trim();
+  const errEl = document.getElementById('auth-err-1');
+  errEl.style.display = 'none';
+  if (!token) { errEl.textContent = 'Please enter your GitHub token'; errEl.style.display = 'block'; return; }
+
+  // Save token
+  saveSetting('gh_token', token);
+
+  // Check if already registered
+  try {
+    const r = await fetch(VIBE_API + '/auth/me', {
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+    });
+    if (r.ok) {
+      vibeUser = await r.json();
+      updateBalanceWidget(vibeUser);
+      // Already registered — show success
+      const icon = document.getElementById('auth-success-icon');
+      const title = document.getElementById('auth-success-title');
+      const msg = document.getElementById('auth-success-msg');
+      if (vibeUser.is_owner) {
+        icon.textContent = '👑'; title.textContent = 'Owner Access';
+        msg.textContent = 'Welcome back, @' + vibeUser.github_login + '! You have unlimited balance.';
+      } else {
+        icon.textContent = '✅'; title.textContent = 'Welcome back!';
+        msg.textContent = '@' + vibeUser.github_login + ' — balance: $' + (vibeUser.balance_cents / 100).toFixed(2);
+      }
+      showAuthStep(3);
+      return;
+    }
+    // Not registered — go to step 2
+    showAuthStep(2);
+  } catch(e) {
+    errEl.textContent = 'Connection error: ' + e.message;
+    errEl.style.display = 'block';
+  }
+}
+
+async function authRegister() {
+  const token = document.getElementById('auth-gh-token').value.trim();
+  const code  = document.getElementById('auth-reg-code').value.trim().toUpperCase();
+  const errEl = document.getElementById('auth-err-2');
+  errEl.style.display = 'none';
+  if (!code) { errEl.textContent = 'Please enter the registration code from Telegram'; errEl.style.display = 'block'; return; }
+
+  try {
+    const r = await fetch(VIBE_API + '/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, github_token: token })
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      errEl.textContent = data.error || 'Registration failed';
+      errEl.style.display = 'block';
+      return;
+    }
+    vibeUser = { github_login: data.github_login, is_owner: data.is_owner, balance_cents: data.balance_cents };
+    updateBalanceWidget(vibeUser);
+    const icon = document.getElementById('auth-success-icon');
+    const title = document.getElementById('auth-success-title');
+    const msg = document.getElementById('auth-success-msg');
+    if (data.is_owner) {
+      icon.textContent = '👑'; title.textContent = 'Owner Access Granted!';
+      msg.textContent = 'Infinite balance active. No charges ever.';
+    } else {
+      icon.textContent = '🎉'; title.textContent = 'Registration successful!';
+      msg.textContent = 'Welcome, @' + data.github_login + '! $1.00 has been added to your balance.';
+    }
+    showAuthStep(3);
+  } catch(e) {
+    errEl.textContent = 'Error: ' + e.message;
+    errEl.style.display = 'block';
+  }
+}
+
+// ── Token Deduction ───────────────────────────────────────────────────────────
+async function deductTokenCost(totalTokens, runId) {
+  if (!vibeUser || vibeUser.is_owner || totalTokens <= 0) return null;
+  try {
+    const r = await vibeApiFetch('/balance/deduct', {
+      method: 'POST',
+      body: JSON.stringify({ tokens: totalTokens, run_id: String(runId), description: `Run #${runId}` })
+    });
+    if (!r.ok) {
+      if (r.status === 402) {
+        const d = await r.json();
+        appendMsgDOM({ role:'system', sender:'💳 Balance',
+          content: `⚠️ Insufficient balance ($${(d.balance_cents/100).toFixed(2)} available). Top up to continue.`,
+          time: now() });
+      }
+      return null;
+    }
+    const d = await r.json();
+    vibeUser.balance_cents = d.balance_cents;
+    updateBalanceWidget(vibeUser);
+    return d;
+  } catch { return null; }
+}
+
+// ── Top-up ────────────────────────────────────────────────────────────────────
+function openTopupModal() { openModal('topup-modal'); }
+
+function selectTopupAmt(amt, fromInput) {
+  topupSelectedAmt = amt;
+  document.querySelectorAll('.topup-amt').forEach(b => b.classList.remove('selected'));
+  if (!fromInput) {
+    const btns = document.querySelectorAll('.topup-amt');
+    btns.forEach(b => { if (b.textContent === '$' + amt) b.classList.add('selected'); });
+    document.getElementById('topup-custom').value = '';
+  }
+  // Reset invoice area
+  document.getElementById('topup-invoice-area').style.display = 'none';
+  topupInvoiceId = null;
+}
+
+async function createTopupInvoice() {
+  if (!topupSelectedAmt || topupSelectedAmt < 1) {
+    toast('Select or enter an amount (min $1)', 'error'); return;
+  }
+  const btn = document.getElementById('topup-create-btn');
+  btn.textContent = 'Creating…'; btn.disabled = true;
+  try {
+    const r = await vibeApiFetch('/payment/invoice', {
+      method: 'POST',
+      body: JSON.stringify({ amount_usd: topupSelectedAmt })
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || 'Invoice failed', 'error'); return; }
+    topupInvoiceId = d.invoice_id;
+    document.getElementById('topup-invoice-info').textContent =
+      `Invoice #${d.invoice_id} · $${topupSelectedAmt} USDT · expires in 1 hour`;
+    document.getElementById('topup-pay-link').href = d.pay_url;
+    document.getElementById('topup-invoice-area').style.display = 'block';
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+  btn.textContent = 'Generate Invoice'; btn.disabled = false;
+}
+
+async function checkTopupPayment() {
+  if (!topupInvoiceId) { toast('No active invoice', 'error'); return; }
+  try {
+    const r = await vibeApiFetch('/payment/check', {
+      method: 'POST',
+      body: JSON.stringify({ invoice_id: topupInvoiceId })
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || 'Check failed', 'error'); return; }
+    if (!d.paid) {
+      toast('Payment not confirmed yet. Try again in a moment.', ''); return;
+    }
+    vibeUser.balance_cents = d.balance_cents;
+    updateBalanceWidget(vibeUser);
+    closeModal('topup-modal');
+    toast(`✅ $${d.credited_usd} added! New balance: $${d.balance_usd}`, 'success');
+    topupInvoiceId = null;
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────────
 (function init() {
   loadSettings();
@@ -1678,15 +2193,8 @@ function getApiKeyInputs() {
   renderHistory();
   showTab('settings');
 
-  // Load GitHub user info
-  const token = ls('vc2_settings',{}).gh_token || '';
-  if (token) {
-    fetch('https://api.github.com/user', { headers:{ Authorization:`Bearer ${token}` } })
-      .then(r=>r.json())
-      .then(u => {
-        document.getElementById('owner-info').textContent = `@${u.login || 'connected'}`;
-      }).catch(()=>{});
-  }
+  // Load VIBE-CODE auth state
+  checkVibeAuth();
 
   // Close modals on overlay click
   document.querySelectorAll('.modal-overlay').forEach(el => {
