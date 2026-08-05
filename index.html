@@ -125,6 +125,13 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
   text-transform:uppercase;letter-spacing:.06em
 }
 .mode-toggle button.active{background:var(--accent);color:#fff}
+.uncensored-btn{display:flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;transition:.15s;font-weight:500}
+.uncensored-btn:hover{border-color:var(--border2);color:var(--text)}
+.uncensored-btn.active{border-color:var(--red);color:var(--red);background:rgba(255,77,109,.12)}
+.uncensored-dot{width:8px;height:8px;border-radius:50%;background:var(--text3);transition:.15s}
+.uncensored-btn.active .uncensored-dot{background:var(--red);box-shadow:0 0 8px var(--red)}
+.hist-tokens{font-family:'JetBrains Mono',monospace;color:var(--accent3);font-size:11px;font-weight:600}
+.hist-cost{font-family:'JetBrains Mono',monospace;color:var(--red);font-size:11px;font-weight:600}
 
 /* ─── Chat messages ───────────────────────────────────── */
 #messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
@@ -640,6 +647,9 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
         <button id="btn-single" class="active" onclick="setMode('single')">Single</button>
         <button id="btn-multi" onclick="setMode('multi')">Multi-Agent</button>
       </div>
+      <button class="uncensored-btn" id="uncensored-btn" onclick="toggleUncensored()" title="Uncensored mode + security audit">
+        <span class="uncensored-dot" id="uncensored-dot"></span> Uncensored
+      </button>
       <div class="repo-chip" id="repo-chip" onclick="openRepoModal()">
         <span>📂</span>
         <span id="repo-chip-text">Select Repo</span>
@@ -1026,6 +1036,24 @@ let allRepos = [];
 function ls(key, def) { try { return JSON.parse(localStorage.getItem(key)) ?? def; } catch { return def; } }
 function lsSet(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
 
+let uncensoredMode = false;
+
+function toggleUncensored() {
+  uncensoredMode = !uncensoredMode;
+  lsSet('vc2_uncensored', uncensoredMode);
+  document.getElementById('uncensored-btn').classList.toggle('active', uncensoredMode);
+  toast(uncensoredMode ? '🔓 Uncensored mode ON — security audit active' : '🔒 Uncensored mode OFF', uncensoredMode ? 'error' : 'info');
+}
+function estimateTokens(text) {
+  if (!text) return 0;
+  let latin = 0, other = 0;
+  for (const c of text) { if (c.codePointAt(0) < 0x0400) latin++; else other++; }
+  return Math.round(latin / 4 + other / 2);
+}
+function updateTokenCount(n) {
+  document.getElementById('token-count').textContent = `${(n || 0).toLocaleString()} tokens`;
+}
+
 function loadSettings() {
   const s = ls('vc2_settings', {});
   document.getElementById('sel-planner').value = s.planner_model || 'qwen2.5:7b';
@@ -1040,6 +1068,8 @@ function loadSettings() {
   if (s.repo) { GH_REPO_FULL = s.repo; updateRepoDisplay(s.repo); }
   if (s.mode) setMode(s.mode, false);
   GH_TOKEN_LOCAL = s.gh_token || '';
+  uncensoredMode = ls('vc2_uncensored', false);
+  document.getElementById('uncensored-btn').classList.toggle('active', uncensoredMode);
 }
 function saveSetting(key, val) {
   const s = ls('vc2_settings', {});
@@ -1333,6 +1363,7 @@ async function send() {
 
   appendMsgDOM({ role:'user', sender:'You', content: prompt, time: now() });
   resetAgentStatus();
+  updateTokenCount(estimateTokens(prompt));
 
   const s = ls('vc2_settings', {});
   // API keys are now stored as GitHub repository secrets — not passed as inputs
@@ -1351,6 +1382,7 @@ async function send() {
     model_planner: s.planner_model || 'qwen2.5:7b',
     model_coder:   s.coder_model   || 'bonsai-27b',
     model_single:  s.single_model  || 'qwen2.5-coder:7b',
+    uncensored:   String(uncensoredMode),
   };
 
   // Dispatch workflow
@@ -1489,8 +1521,9 @@ async function loadResults(runId, prompt, inputs) {
     totalTokensRun = window._runArtifactTokens[runId];
     delete window._runArtifactTokens[runId];
   }
+  let deductResult = null;
   if (totalTokensRun > 0 && vibeUser) {
-    const deductResult = await deductTokenCost(totalTokensRun, runId);
+    deductResult = await deductTokenCost(totalTokensRun, runId);
     if (deductResult && !deductResult.is_owner) {
       const costStr = deductResult.cost_usd;
       const balStr  = deductResult.balance_usd;
@@ -1502,7 +1535,8 @@ async function loadResults(runId, prompt, inputs) {
         time: now() });
     }
   }
-  addToHistory(prompt, inputs, runId);
+  updateTokenCount(totalTokensRun);
+  addToHistory(prompt, inputs, runId, totalTokensRun, deductResult);
 }
 
 async function processArtifactZip(blob, artifactName) {
@@ -1600,7 +1634,7 @@ async function buildAndDownloadZip(files, label) {
 }
 
 // ── History ────────────────────────────────────────────────────────────────────
-function addToHistory(prompt, inputs, runId) {
+function addToHistory(prompt, inputs, runId, tokens, deductResult) {
   const hist = ls('vc2_history', []);
   hist.unshift({
     id: Date.now(),
@@ -1608,6 +1642,8 @@ function addToHistory(prompt, inputs, runId) {
     repo: inputs.target_repo,
     mode: inputs.agent_mode,
     runId,
+    tokens: tokens || 0,
+    cost: (deductResult && deductResult.cost_usd) ? deductResult.cost_usd : null,
     ts: new Date().toISOString()
   });
   lsSet('vc2_history', hist.slice(0,50));
@@ -1628,6 +1664,8 @@ function renderHistory() {
         <span>${h.repo || 'no repo'}</span>
         <span>${h.mode}</span>
         <span>${new Date(h.ts).toLocaleDateString()}</span>
+        ${h.tokens ? `<span class="hist-tokens">${h.tokens.toLocaleString()} tok</span>` : ''}
+        ${h.cost ? `<span class="hist-cost">-$${h.cost}</span>` : ''}
       </div>
       ${h.runId ? `<div class="hist-actions">
         <a href="https://github.com/B3B3097/VIBE-CODE/actions/runs/${h.runId}" target="_blank"
@@ -2081,7 +2119,8 @@ function updateBalanceWidget(user) {
     const usd = (user.balance_cents / 100).toFixed(2);
     bwBalance.textContent = '$' + usd;
     bwBalance.className = 'bw-value';
-    bwSub.textContent = '$0.15 / 1M tokens';
+    const tokBal = Math.floor(user.balance_cents / 100 / 0.15 * 1000000);
+    bwSub.textContent = `≈ ${tokBal.toLocaleString()} tokens · $0.15/1M`;
     bwIcon.textContent = user.balance_cents > 50 ? '💰' : (user.balance_cents > 0 ? '⚠️' : '❌');
     topupBtn.style.display = 'block';
   }
