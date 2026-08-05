@@ -808,7 +808,9 @@ Return empty array if no tools needed.
         ]
 
         try:
-            raw, _ = call_model(messages, MODEL_PLANNER, budget)
+            # Use MODEL_SINGLE in single-agent mode — MODEL_PLANNER may not be loaded
+            model = MODEL_SINGLE if AGENT_MODE == "single" else MODEL_PLANNER
+            raw, _ = call_model(messages, model, budget)
             match = re.search(r'\{[\s\S]*\}', raw)
             if not match:
                 return ""
@@ -1214,7 +1216,9 @@ Keep each item concise. Focus on user/developer impact."""
                 + "\n\nGenerate the release notes."
             )}
         ]
-        raw, _ = call_model(messages, MODEL_PLANNER, tokens_budget)
+        # Use MODEL_SINGLE in single-agent mode — MODEL_PLANNER is not loaded then
+        model = MODEL_SINGLE if AGENT_MODE == "single" else MODEL_PLANNER
+        raw, _ = call_model(messages, model, tokens_budget)
         return raw
 
 
