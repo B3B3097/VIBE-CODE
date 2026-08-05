@@ -711,7 +711,8 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
       <div class="input-row">
         <textarea id="prompt-input" rows="1"
           placeholder="Describe what to build, fix, or improve…"
-          onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+          onkeydown="handleKey(event)" oninput="autoResize(this)"
+          onfocus="if(!vibeUser){this.blur();openAuthOverlay();}"></textarea>
         <button id="send-btn" onclick="send()">➤</button>
       </div>
     </div>
@@ -725,6 +726,7 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
       <button class="rpanel-tab" onclick="showTab('notes')">Notes</button>
       <button class="rpanel-tab" onclick="showTab('trace')">Trace</button>
       <button class="rpanel-tab" onclick="showTab('history')">History</button>
+      <button class="rpanel-tab" onclick="showTab('billing');loadBillingHistory()">💳 Billing</button>
     </div>
     <div class="rpanel-body">
 
@@ -847,6 +849,19 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
       <!-- History tab -->
       <div id="tab-history" style="display:none">
         <div id="history-list"></div>
+      </div>
+
+      <!-- Billing tab -->
+      <div id="tab-billing" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:13px;font-weight:700;color:var(--text)">Token Spending History</div>
+          <div id="bill-balance" style="font-size:12px;color:var(--accent3);font-family:'JetBrains Mono',monospace"></div>
+        </div>
+        <div id="billing-list">
+          <div style="color:var(--text3);font-size:12px;text-align:center;padding:30px">
+            Loading…
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1337,11 +1352,17 @@ function confirmRepo() {
 
 // ── Send ───────────────────────────────────────────────────────────────────────
 async function send() {
-  // ── Auth guard: must have a GitHub token ──
+  // ── Auth guard: must be registered on VIBE-CODE ──
   const token = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
-  if (!token) {
+  if (!token || !vibeUser) {
     openAuthOverlay();
-    toast('⚠️ Введите GitHub-токен в настройках, чтобы начать', 'error');
+    toast('⚠️ Войдите в аккаунт VIBE-CODE для работы', 'error');
+    return;
+  }
+  // Check balance (non-owner)
+  if (!vibeUser.is_owner && vibeUser.balance_cents <= 0) {
+    openTopupModal();
+    toast('❌ Недостаточно средств. Пополните баланс.', 'error');
     return;
   }
 
@@ -2364,7 +2385,73 @@ async function checkTopupPayment() {
     closeModal('topup-modal');
     toast(`✅ $${d.credited_usd} added! New balance: $${d.balance_usd}`, 'success');
     topupInvoiceId = null;
+    // Refresh billing history if tab is open
+    if (document.getElementById('tab-billing')?.style.display !== 'none') loadBillingHistory();
   } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+// ── Billing History ──────────────────────────────────────────────────────────
+async function loadBillingHistory() {
+  if (!vibeUser) {
+    document.getElementById('billing-list').innerHTML =
+      '<div style="color:var(--text3);font-size:12px;text-align:center;padding:30px">Login required</div>';
+    return;
+  }
+  const container = document.getElementById('billing-list');
+  const balEl     = document.getElementById('bill-balance');
+
+  if (vibeUser.is_owner) {
+    balEl.textContent = 'Balance: ∞';
+    container.innerHTML = '<div style="color:var(--text3);font-size:12px;text-align:center;padding:30px">👑 Owner — unlimited balance, no charges</div>';
+    return;
+  }
+
+  balEl.textContent = `Balance: $${(vibeUser.balance_cents / 100).toFixed(2)}`;
+  container.innerHTML = '<div style="color:var(--text3);font-size:12px;text-align:center;padding:20px">Loading…</div>';
+
+  try {
+    const r = await vibeApiFetch('/balance/history');
+    if (!r.ok) { container.innerHTML = '<div style="color:var(--red);font-size:12px;padding:20px">Error loading history</div>'; return; }
+    const { transactions } = await r.json();
+
+    if (!transactions || transactions.length === 0) {
+      container.innerHTML = '<div style="color:var(--text3);font-size:12px;text-align:center;padding:30px">No transactions yet</div>';
+      return;
+    }
+
+    container.innerHTML = transactions.map(tx => {
+      const isDebit   = tx.amount_cents < 0;
+      const amount    = Math.abs(tx.amount_cents);
+      const usd       = (amount / 100).toFixed(amount < 1 ? 6 : 2);
+      const sign      = isDebit ? '−' : '+';
+      const color     = isDebit ? 'var(--red)' : 'var(--green)';
+      const icon      = tx.type === 'deposit' ? '💳' : tx.type === 'bonus' ? '🎁' : tx.type === 'owner' ? '👑' : '🧮';
+      const date      = new Date(tx.created_at).toLocaleString('ru-RU', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+      const runLink   = tx.run_id
+        ? `<a href="https://github.com/B3B3097/VIBE-CODE/actions/runs/${tx.run_id}" target="_blank"
+             style="color:var(--accent);font-size:10px;text-decoration:none">Run #${tx.run_id}</a>`
+        : '';
+      return `
+        <div style="padding:9px 10px;border-radius:9px;background:var(--bg2);border:1px solid var(--border);
+          margin-bottom:6px;display:flex;align-items:center;gap:10px">
+          <div style="font-size:16px;flex-shrink:0">${icon}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+              ${escHtml(tx.description || tx.type)}
+            </div>
+            <div style="display:flex;gap:8px;margin-top:2px;align-items:center">
+              <span style="font-size:10px;color:var(--text3)">${date}</span>
+              ${runLink}
+            </div>
+          </div>
+          <div style="font-size:13px;font-weight:700;color:${color};font-family:'JetBrains Mono',monospace;flex-shrink:0">
+            ${sign}$${usd}
+          </div>
+        </div>`;
+    }).join('');
+  } catch(e) {
+    container.innerHTML = `<div style="color:var(--red);font-size:12px;padding:20px">Error: ${e.message}</div>`;
+  }
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
