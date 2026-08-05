@@ -56,6 +56,11 @@ on:
       total_budget:
         description: 'Total token budget (0 = auto)'
         default: '0'
+      uncensored:
+        description: 'Uncensored mode (no content refusals + security audit)'
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
       # NOTE: All API keys are stored as GitHub repository secrets.
       # Go to Settings → Secrets → Actions to add them.
       # Supported secret names: SERPER_API_KEY, BRAVE_API_KEY, OPENAI_API_KEY,
@@ -212,6 +217,7 @@ jobs:
           MAX_TOKENS:    "${{ inputs.max_tokens }}"
           ITERATIONS:    "${{ inputs.iterations }}"
           TOTAL_BUDGET:  "${{ inputs.total_budget }}"
+          UNCENSORED:    "${{ inputs.uncensored }}"
           OUTPUT_DIR:    "/tmp/vibe_output"
           # ── API keys from repository secrets ──
           # Add these under Settings → Secrets → Actions in your repo
