@@ -1,11 +1,11 @@
 name: 🔥 Keep Model Cache Warm
 
-# Runs every 5 days so the 7-day Actions cache never expires.
+# Runs every 3 days so the 7-day Actions cache never expires.
 # Also triggered manually to pre-warm after repo clone.
 
 on:
   schedule:
-    - cron: '0 3 */5 * *'   # 03:00 UTC every 5th day
+    - cron: '0 3 */3 * *'   # 03:00 UTC every 3rd day (was 5 — too close to 7-day expiry)
   workflow_dispatch:
     inputs:
       model_single:
@@ -125,5 +125,5 @@ jobs:
           echo "Single model : ${{ steps.cache-single.outputs.cache-hit == 'true' && 'HIT ✅' || 'MISS — downloaded ⬇️' }}"
           echo "Planner model: ${{ steps.cache-planner.outputs.cache-hit == 'true' && 'HIT ✅' || 'MISS — downloaded ⬇️' }}"
           echo "Bonsai GGUF  : ${{ steps.cache-bonsai.outputs.cache-hit == 'true' && 'HIT ✅' || 'MISS — downloaded ⬇️' }}"
-          echo "Next auto-run: in 5 days (cron)"
+          echo "Next auto-run: in 3 days (cron)"
           echo "================================"
