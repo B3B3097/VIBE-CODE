@@ -1,0 +1,28 @@
+# Token Usage Tracking
+
+# Weekly, Monthly, and Yearly Token Totals
+weekly_total: 0
+monthly_total: 0
+yearly_total: 0
+
+# Graph data (for visualization)
+graph:
+  weekly: []
+  monthly: []
+  yearly: []
+
+# Last updated timestamp
+last_updated: "2023-10-05"
+
+# Description of token usage statistics
+description: |
+  \n
+  ## Token Usage Overview
+  - **Weekly Total**: $weekly_total tokens
+  - **Monthly Total**: $monthly_total tokens
+  - **Yearly Total**: $yearly_total tokens
+
+  ## Graphs
+  - Weekly Token Trends: $graph.weekly
+  - Monthly Token Trends: $graph.monthly
+  - Yearly Token Trends: $graph.yearlyё

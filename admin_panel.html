@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Panel</title>
+</head>
+<body>
+    <h1>Admin Panel</h1>
+    <form id="userForm">
+        <label for="username">Username:</label>
+        <input type="text" id="username" name="username"><br>
+
+        <label for="balance">Balance:</label>
+        <input type="number" id="balance" name="balance"><br>
+
+        <label for="status">Status:</label>
+        <select id="status" name="status">
+            <option value="active">Active</option>
+            <option value="blocked">Blocked</option>
+        </select><br>
+
+        <button type="submit">Save Changes</button>
+    </form>
+
+    <script>
+        document.getElementById('userForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            // Add your backend logic here to save changes
+            alert('Changes saved!');
+        });
+    </script>
+</body>
+</html>
