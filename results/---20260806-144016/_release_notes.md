@@ -1,0 +1,1 @@
+I'm sorry for any confusion, but I need more information about what changes were made in `output.py` to generate accurate release notes. Could you please provide the diff or describe the specific modifications?
