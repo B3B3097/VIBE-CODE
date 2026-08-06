@@ -654,6 +654,10 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
         <span>📂</span>
         <span id="repo-chip-text">Select Repo</span>
       </div>
+      <button class="topbar-btn" id="publish-pr-btn" onclick="publishPR()" title="Publish Pull Request to selected repository">
+        <svg height="16" width="16" viewBox="0 0 16 16" style="vertical-align:middle;margin-right:4px" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-4.22 0-.93.33-1.59.87-2.19-.36-.9-.83-2.34.18-4.8 0 0 1.5-.5 4.9 1.75 1.48-.41 2.99-.41 4.47 0 3.4-2.25 4.9-1.75 4.9-1.75 1.01 2.46.54 3.9.18 4.8.54.6.87 1.26.87 2.19 0 3.34-1.87 4.02-3.65 4.22.29.25.55.74.55 1.5v2.22c0 .21.15.46.55.38A8.001 8.001 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        Publish PR
+      </button>
       <button class="topbar-btn" onclick="addChildChat()">⤵ Sub-chat</button>
       <button class="topbar-btn primary" onclick="togglePanel()">⚙ Settings</button>
     </div>
@@ -768,6 +772,7 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
               <option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option>
               <option value="bonsai-27b">Prism Bonsai 27B</option>
               <option value="qwen2.5:7b">Qwen 2.5 7B</option>
+              <option value="vibe-0.5-free" data-free="true">🆓 VIBE 0.5 (Free - No Token Cost)</option>
             </select>
           </div>
         </div>
@@ -1348,6 +1353,37 @@ function confirmRepo() {
   const val = document.getElementById('repo-manual-input').value.trim();
   if (val) { GH_REPO_FULL = val; updateRepoDisplay(val); }
   closeModal('repo-modal');
+}
+
+async function publishPR() {
+  const token = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
+  if (!token) {
+    toast('⚠️ Add GitHub token in Settings to publish PRs', 'error');
+    return;
+  }
+  if (!GH_REPO_FULL) {
+    openRepoModal();
+    toast('⚠️ Select a repository first', 'warning');
+    return;
+  }
+  
+  // Dispatch workflow with auto_pr=true
+  const inputs = {
+    prompt: 'Publish current changes as Pull Request',
+    mode: 'publish_pr',
+    target_repo: GH_REPO_FULL,
+    auto_pr: 'true',
+    agent_mode: agentMode
+  };
+  
+  toast('🚀 Publishing PR to ' + GH_REPO_FULL + '...', 'info');
+  const wfResult = await dispatchWorkflow(inputs);
+  if (!wfResult.ok) {
+    appendMsgDOM({ role:'system', sender:'System', content: `❌ PR publish failed: ${wfResult.error}`, time: now() });
+  } else {
+    appendMsgDOM({ role:'system', sender:'System', content: `✅ PR dispatch initiated — Run #${wfResult.runId || '?'}`, time: now() });
+    await pollWorkflow(wfResult.runId, inputs.prompt, inputs);
+  }
 }
 
 // ── Send ───────────────────────────────────────────────────────────────────────
