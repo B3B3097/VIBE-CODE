@@ -1,3 +1,7 @@
+</think>
+
+</think>
+
 <div align="center">
 
 <img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=200&section=header&text=VIBE-CODE&fontSize=80&fontColor=fff&animation=twinkling&fontAlignY=35&desc=Multi-Agent%20AI%20Code%20Platform&descAlignY=60&descSize=20" width="100%"/>
@@ -23,7 +27,6 @@
 </h3>
 
 <br/>
-
 </div>
 
 ---
@@ -42,7 +45,6 @@
 </div>
 
 ---
-
 ## 🎯 Возможности
 
 - **Два агента в тандеме** — Planner и Coder работают вместе с автоматическим циклом рецензирования
@@ -53,7 +55,6 @@
 - **Локальные LLM** — работает на Ollama, без счетов за облачный AI
 
 ---
-
 ## 🚀 Быстрый старт
 
 1. **Откройте [сайт VIBE-CODE](https://b3b3097.github.io/VIBE-CODE/)** — весь интерфейс уже в браузере.
@@ -65,7 +66,6 @@
 > Хотите запустить локально? Склонируйте репозиторий и используйте GitHub Actions workflow `generate.yml` — все входные параметры настраиваются при запуске.
 
 ---
-
 ## 🖼 Как это выглядит
 
 <div align="center">
@@ -79,7 +79,6 @@
 </div>
 
 ---
-
 ## 🔗 Ссылки
 
 - **Сайт:** [https://b3b3097.github.io/VIBE-CODE/](https://b3b3097.github.io/VIBE-CODE/)
@@ -87,9 +86,9 @@
 - **Runtime:** [Ollama](https://ollama.ai) · **CI:** [GitHub Actions](https://github.com/features/actions)
 
 ---
-
 <div align="center">
 
 <sub>Сделано с ❤️ для тех, кто предпочитает описывать код словами.</sub>
 
 </div>
+
