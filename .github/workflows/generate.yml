@@ -174,13 +174,13 @@ jobs:
       - name: Register Bonsai 27B in Ollama
         if: inputs.agent_mode == 'multi' && inputs.model_coder == 'bonsai-27b'
         run: |
-          cat > /tmp/bonsai-modelfile << 'EOF'
+          cat > /tmp/bonsai-modelfile << 'MODELEOF'
           FROM /tmp/bonsai-gguf/Bonsai-27B-Q1_0.gguf
           SYSTEM "You are an expert software engineer specializing in writing clean, production-ready code."
           PARAMETER temperature 0.2
           PARAMETER top_p 0.9
           PARAMETER num_predict 4096
-          EOF
+          MODELEOF
           ollama create bonsai-27b -f /tmp/bonsai-modelfile
           ollama list
 
