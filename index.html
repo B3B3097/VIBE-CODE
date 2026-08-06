@@ -1249,7 +1249,15 @@ function now() {
 }
 
 function renderMarkdown(text) {
-  return text
+  // Extract think blocks for separate rendering
+  let thinkContent = '';
+  const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/);
+  if (thinkMatch) {
+    thinkContent = thinkMatch[1].trim();
+    text = text.replace(/<think>[\s\S]*?<\/think>/g, '');
+  }
+  
+  let html = text
     .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
       `<pre><code class="lang-${lang}">${escHtml(code)}</code></pre>`)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -1261,6 +1269,13 @@ function renderMarkdown(text) {
     .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
     .replace(/\n\n/g, '<br><br>')
     .replace(/\n/g, '<br>');
+  
+  // Add think block as collapsible section at the beginning
+  if (thinkContent) {
+    html = `<details class="think-block" style="margin-bottom:12px;border:1px solid var(--border2);border-radius:8px;background:rgba(99,120,255,.05);"><summary style="padding:8px 12px;cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);display:flex;align-items:center;gap:6px;"><span>🧠</span> Размышления модели</summary><div style="padding:0 12px 12px 12px;border-top:1px solid var(--border);margin-top:8px;font-size:12px;color:var(--text2);font-style:italic;line-height:1.6;">${escHtml(thinkContent)}</div></details>` + html;
+  }
+  
+  return html;
 }
 function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -1573,13 +1588,20 @@ async function loadResults(runId, prompt, inputs) {
   }
   // Deduct token cost from balance
   let totalTokensRun = 0;
+  let isFreeModel = false;
+  // Check if free model was used
+  const selectedModel = document.getElementById('sel-single')?.value || '';
+  if (selectedModel.includes('free') || selectedModel.includes('vibe-0.5')) {
+    isFreeModel = true;
+  }
   // Sum tokens from all artifacts (stored in window._lastArtifactTokens)
   if (window._runArtifactTokens && window._runArtifactTokens[runId]) {
     totalTokensRun = window._runArtifactTokens[runId];
     delete window._runArtifactTokens[runId];
   }
   let deductResult = null;
-  if (totalTokensRun > 0 && vibeUser) {
+  // Only deduct if not using free model
+  if (!isFreeModel && totalTokensRun > 0 && vibeUser) {
     deductResult = await deductTokenCost(totalTokensRun, runId);
     if (deductResult && !deductResult.is_owner) {
       const costStr = deductResult.cost_usd;
@@ -1591,9 +1613,21 @@ async function loadResults(runId, prompt, inputs) {
           ` · balance: $${balStr}</span>`,
         time: now() });
     }
+  } else if (isFreeModel && totalTokensRun > 0) {
+    // Show savings for free model
+    const estimatedCost = (totalTokensRun * 0.002 / 1000).toFixed(4); // ~$0.002 per 1K tokens estimate
+    appendMsgDOM({ role:'system', sender:'🆓 Free Tier',
+      content: `<span class="token-cost-badge" style="background:rgba(34,217,122,.15);border-color:var(--green);color:var(--green);">` +
+        `✅ ${totalTokensRun.toLocaleString()} tokens использовано (бесплатно) · ` +
+        `<span style="color:var(--accent3)">💰 Сэкономлено $${estimatedCost}</span></span>`,
+      time: now() });
+    // Still track in stats but don't charge
+    addToHistory(prompt, inputs, runId, totalTokensRun, null, true);
   }
-  updateTokenCount(totalTokensRun);
-  addToHistory(prompt, inputs, runId, totalTokensRun, deductResult);
+  if (!isFreeModel) {
+    updateTokenCount(totalTokensRun);
+    addToHistory(prompt, inputs, runId, totalTokensRun, deductResult);
+  }
 }
 
 async function processArtifactZip(blob, artifactName) {
@@ -1691,7 +1725,7 @@ async function buildAndDownloadZip(files, label) {
 }
 
 // ── History ────────────────────────────────────────────────────────────────────
-function addToHistory(prompt, inputs, runId, tokens, deductResult) {
+function addToHistory(prompt, inputs, runId, tokens, deductResult, isFree = false) {
   const hist = ls('vc2_history', []);
   hist.unshift({
     id: Date.now(),
@@ -1700,7 +1734,8 @@ function addToHistory(prompt, inputs, runId, tokens, deductResult) {
     mode: inputs.agent_mode,
     runId,
     tokens: tokens || 0,
-    cost: (deductResult && deductResult.cost_usd) ? deductResult.cost_usd : null,
+    cost: (deductResult && deductResult.cost_usd) ? deductResult.cost_usd : (isFree ? 0 : null),
+    isFree: isFree,
     ts: new Date().toISOString()
   });
   lsSet('vc2_history', hist.slice(0,50));
@@ -1722,7 +1757,9 @@ function renderHistory() {
         <span>${h.mode}</span>
         <span>${new Date(h.ts).toLocaleDateString()}</span>
         ${h.tokens ? `<span class="hist-tokens">${h.tokens.toLocaleString()} tok</span>` : ''}
-        ${h.cost ? `<span class="hist-cost">-$${h.cost}</span>` : ''}
+        ${h.isFree ? `<span style="color:var(--green);font-size:10px;">🆓 Free</span>` : ''}
+        ${h.cost !== null && !h.isFree ? `<span class="hist-cost">-$${h.cost}</span>` : ''}
+        ${h.cost === 0 && h.isFree ? `<span style="color:var(--accent3);font-size:10px;">💰 Saved</span>` : ''}
       </div>
       ${h.runId ? `<div class="hist-actions">
         <a href="https://github.com/B3B3097/VIBE-CODE/actions/runs/${h.runId}" target="_blank"
@@ -2286,7 +2323,28 @@ async function authRegister() {
   const code  = document.getElementById('auth-reg-code').value.trim().toUpperCase();
   const errEl = document.getElementById('auth-err-2');
   errEl.style.display = 'none';
-  if (!code) { errEl.textContent = 'Введите код из Telegram-бота'; errEl.style.display = 'block'; return; }
+  
+  // Auto-start TG bot registration if no code provided
+  if (!code) {
+    // Try to auto-trigger TG bot registration
+    try {
+      const githubLogin = await getGitHubLogin(token);
+      // Send request to backend to trigger TG bot
+      await Promise.race([
+        fetch(VIBE_API + '/auth/start-tg-registration', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ github_token: token, github_login: githubLogin })
+        }).catch(() => {}),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 3000))
+      ]);
+    } catch(e) {
+      // Backend may not be available, continue with manual entry
+    }
+    errEl.textContent = 'Код не введен. Проверьте Telegram-бота @VIBE_CODE_Bot для получения кода регистрации.';
+    errEl.style.display = 'block';
+    return;
+  }
 
   try {
     const r = await Promise.race([
@@ -2322,6 +2380,20 @@ async function authRegister() {
       errEl.style.display = 'block';
     }
   }
+}
+
+// Helper to get GitHub login from token
+async function getGitHubLogin(token) {
+  try {
+    const r = await fetch('https://api.github.com/user', {
+      headers: { 'Authorization': 'token ' + token }
+    });
+    if (r.ok) {
+      const d = await r.json();
+      return d.login;
+    }
+  } catch(e) {}
+  return null;
 }
 
 function authSkipToFreeTier() {
