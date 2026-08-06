@@ -11,32 +11,46 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 18
-        cache: npm
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
 
-    - name: Install dependencies
-      run: npm ci --prefer-offline
+      - name: Install dependencies
+        run: npm ci --prefer-offline
 
-    - name: Analyze code & prepare build
-      id: analysis
-      run: |
-        echo "🧠 Thinking about project structure..."
-        echo "Checking if package.json has build/test scripts..."
-        test -f package.json && echo "✅ Found package.json" || exit 1
+      # "Thoughts" / Reasoning step
+      - name: Analyze code & prepare build
+        id: analysis
+        run: |
+          echo "🧠 Thinking about project structure..."
+          echo "Checking if package.json has build/test scripts..."
+          test -f package.json && echo "✅ Found package.json" || exit 1
 
-    - name: Build application
-      run: npm run build
+      - name: Build application
+        run: npm run build
 
-    - name: Run tests
-      run: npm test -- --coverage
+      - name: Run tests
+        run: npm test -- --coverage
 
-    - name: Generate coverage report
-      run: nyc report --json > coverage.json
+      - name: Generate coverage report
+        run: nyc report --json > coverage.json
+
+  create-pr-action:
+    needs: build-and-test
+    if: github.event_name == 'pull_request' && github.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Create PR comment
+        run: echo "✅ CI/CD passed successfully!"
