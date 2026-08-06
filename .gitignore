@@ -22,24 +22,30 @@ venv/
 *.log
 *.tmp
 *.swp
+*.swo
 
 # Editors
 .vscode/
 .idea/
 
+# System files
+.DS_Store
+Thumbs.db
+
+# Coverage reports
+coverage/
+htmlcov/
+.coverage
+
 # Build directories
 dist/
 build/
 target/
+.gradle/
+
+# Python specific
 .mypy_cache/
 .pytest_cache/
-.coverage
-coverage/
-htmlcov/
-
-# System files
-.DS_Store
-Thumbs.db
 
 # Compressed files
 *.zip
@@ -60,3 +66,7 @@ Thumbs.db
 *.Z
 *.lz
 *.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst

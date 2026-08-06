@@ -79,6 +79,14 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
   font-size:10px;padding:2px 6px;border-radius:20px;
   background:rgba(99,120,255,.2);color:var(--accent);font-weight:600
 }
+.chat-item .delete-btn{
+  opacity:0;width:24px;height:24px;border-radius:6px;
+  border:none;background:rgba(255,77,109,.15);color:var(--red);
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;cursor:pointer;transition:.15s;flex-shrink:0
+}
+.chat-item:hover .delete-btn{opacity:1}
+.chat-item .delete-btn:hover{background:var(--red);color:#fff}
 .chat-item.child{margin-left:16px}
 .chat-item.child::before{
   content:'';position:absolute;left:-8px;top:50%;
@@ -109,6 +117,7 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .topbar-btn:hover{background:var(--bg2);color:var(--text)}
 .topbar-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .topbar-btn.primary:hover{opacity:.85}
+.topbar-btn.danger:hover{background:rgba(255,77,109,.15);color:var(--red);border-color:var(--red)}
 .repo-chip{
   padding:5px 10px;border-radius:20px;border:1px solid var(--border2);
   background:rgba(99,120,255,.08);color:var(--accent);font-size:12px;
@@ -659,6 +668,7 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
         Publish PR
       </button>
       <button class="topbar-btn" onclick="addChildChat()">⤵ Sub-chat</button>
+      <button class="topbar-btn danger" id="delete-chat-btn" onclick="deleteCurrentChat()" title="Delete this chat">🗑 Delete</button>
       <button class="topbar-btn primary" onclick="togglePanel()">⚙ Settings</button>
     </div>
 
@@ -1206,6 +1216,42 @@ function renderChatTree() {
     return;
   }
   roots.forEach(c => renderItem(c, false));
+}
+
+function deleteCurrentChat() {
+  if (!currentChatId) { toast('No chat selected', 'error'); return; }
+  const chats = getChats();
+  const chat = chats.find(c => c.id === currentChatId);
+  if (!chat) return;
+  
+  // Confirm deletion
+  if (!confirm(`Delete chat "${chat.name}"? This will also delete all sub-chats.`)) return;
+  
+  // Collect all descendant IDs to delete
+  function collectDescendants(parentId) {
+    const children = chats.filter(c => c.parent === parentId);
+    let ids = children.map(c => c.id);
+    children.forEach(c => { ids = ids.concat(collectDescendants(c.id)); });
+    return ids;
+  }
+  
+  const idsToDelete = [currentChatId].concat(collectDescendants(currentChatId));
+  
+  // Filter out chats to delete
+  const remainingChats = chats.filter(c => !idsToDelete.includes(c.id));
+  saveChats(remainingChats);
+  
+  // Switch to another chat or create new one
+  if (remainingChats.length > 0) {
+    switchChat(remainingChats[0].id);
+  } else {
+    currentChatId = null;
+    document.getElementById('chat-title-input').value = '';
+    renderMessages([]);
+    renderChatTree();
+  }
+  
+  toast('Chat deleted', 'success');
 }
 
 // ── Messages ───────────────────────────────────────────────────────────────────
