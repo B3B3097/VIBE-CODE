@@ -106,11 +106,12 @@ PROGRESS_FILE = f"{OUTPUT_DIR}/_progress.json"
 def write_progress(status: str, message: str, tokens_used: int = 0,
                    agent: str = "", extra: dict = None):
     data = {
-        "status":      status,
-        "message":     message,
-        "tokensUsed":  tokens_used,
-        "agent":       agent,
-        "timestamp":   datetime.datetime.utcnow().isoformat(),
+        "status":       status,
+        "message":      message,
+        "tokensUsed":   tokens_used,
+        "total_tokens": tokens_used,
+        "agent":        agent,
+        "timestamp":    datetime.datetime.utcnow().isoformat(),
     }
     if extra:
         data.update(extra)
@@ -1257,6 +1258,7 @@ class Orchestrator:
         self.git      = GitIntegration(TARGET_REPO, GH_TOKEN) \
                         if TARGET_REPO and GH_TOKEN else None
         self.total_tokens = 0
+        self.reasoning    = []
 
     def _transition(self, new_state: AgentState, msg: str):
         self.state = new_state
@@ -1282,6 +1284,9 @@ class Orchestrator:
         budget_per_call = (TOTAL_BUDGET // 4) if TOTAL_BUDGET else MAX_TOKENS
         plan = self.planner.decompose(task, repo_ctx, tool_ctx, budget_per_call)
         self.total_tokens += plan.get("_tokens", 0)
+        self.reasoning.append({"agent": "planner", "phase": "planning",
+                               "content": plan.get("_raw", plan.get("summary", task)),
+                               "tokens": plan.get("_tokens", 0)})
         write_progress("planning", f"✅ Plan ready: {len(plan.get('steps',[]))} steps",
                        self.total_tokens, "planner",
                        extra={"plan": plan.get("summary", "")})
@@ -1291,6 +1296,9 @@ class Orchestrator:
         code_budget = (TOTAL_BUDGET // 2) if TOTAL_BUDGET else MAX_TOKENS
         code_result = self.coder.implement(plan, repo_ctx, tool_ctx, "", code_budget)
         self.total_tokens += code_result.get("_tokens", 0)
+        self.reasoning.append({"agent": "coder", "phase": "coding",
+                               "content": code_result.get("_raw", ""),
+                               "tokens": code_result.get("_tokens", 0)})
         files = code_result.get("files", {})
 
         # ── 5. REVIEW LOOP ─────────────────────────────────────────────────────
@@ -1299,6 +1307,11 @@ class Orchestrator:
                              f"🔍 Planner reviewing (pass {loop+1})...")
             review = self.planner.review(task, files, budget_per_call)
             self.total_tokens += review.get("_tokens", 0)
+            self.reasoning.append({"agent": "planner", "phase": "review",
+                                   "content": review.get("feedback", review.get("_raw", "")),
+                                   "tokens": review.get("_tokens", 0),
+                                   "approved": review.get("approved"),
+                                   "score": review.get("score")})
 
             if review.get("approved", True) or review.get("score", 10) >= 7:
                 write_progress("reviewing",
@@ -1310,6 +1323,9 @@ class Orchestrator:
                              f"🔧 Coder refactoring: {review.get('feedback','')[:60]}")
             refactor = self.coder.refactor(files, review.get("feedback",""), code_budget)
             self.total_tokens += refactor.get("_tokens", 0)
+            self.reasoning.append({"agent": "coder", "phase": "refactor",
+                                   "content": refactor.get("_raw", ""),
+                                   "tokens": refactor.get("_tokens", 0)})
             files = refactor.get("files", files)
 
         result["files"] = files
@@ -1352,11 +1368,13 @@ class Orchestrator:
                          f"🎉 Done in {elapsed}s | {self.total_tokens} tokens")
         result["elapsed"]      = elapsed
         result["total_tokens"] = self.total_tokens
+        result["reasoning"]    = self.reasoning
         return result
 
 
 # ── Save outputs ───────────────────────────────────────────────────────────────
-def save_outputs(files: dict, release_notes: str = "", pr_url: str = ""):
+def save_outputs(files: dict, release_notes: str = "", pr_url: str = "",
+                 reasoning: list = None):
     for fname, content in files.items():
         safe = fname.lstrip("/").replace("..", "__")
         out_path = os.path.join(OUTPUT_DIR, safe)
@@ -1376,6 +1394,10 @@ def save_outputs(files: dict, release_notes: str = "", pr_url: str = ""):
     tools = toolkit.available_tools()
     with open(f"{OUTPUT_DIR}/_tools_status.json", "w") as f:
         json.dump(tools, f, indent=2)
+
+    if reasoning:
+        with open(f"{OUTPUT_DIR}/_reasoning.json", "w") as f:
+            json.dump(reasoning, f, indent=2, ensure_ascii=False)
 
 
 # ── Single-agent legacy path ───────────────────────────────────────────────────
@@ -1469,7 +1491,8 @@ def main():
         result = orc.run(PROMPT)
         save_outputs(result.get("files", {}),
                      result.get("release_notes", ""),
-                     result.get("pr_url", ""))
+                     result.get("pr_url", ""),
+                     result.get("reasoning", []))
     else:
         run_single_agent()
 
