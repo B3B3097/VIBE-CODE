@@ -141,6 +141,9 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .uncensored-btn.active .uncensored-dot{background:var(--red);box-shadow:0 0 8px var(--red)}
 .hist-tokens{font-family:'JetBrains Mono',monospace;color:var(--accent3);font-size:11px;font-weight:600}
 .hist-cost{font-family:'JetBrains Mono',monospace;color:var(--red);font-size:11px;font-weight:600}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center}
+.stat-card .stat-n{font-size:16px;font-weight:700;color:var(--text);font-family:monospace}
+.stat-card .stat-l{font-size:10px;color:var(--text3);margin-top:2px}
 
 /* ─── Chat messages ───────────────────────────────────── */
 #messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
@@ -743,6 +746,7 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
       <button class="rpanel-tab" onclick="showTab('notes')">Notes</button>
       <button class="rpanel-tab" onclick="showTab('trace')">Trace</button>
       <button class="rpanel-tab" onclick="showTab('history')">History</button>
+      <button class="rpanel-tab" onclick="showTab('stats');renderStats()">📊 Stats</button>
       <button class="rpanel-tab" onclick="showTab('billing');loadBillingHistory()">💳 Billing</button>
     </div>
     <div class="rpanel-body">
@@ -867,6 +871,11 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
       <!-- History tab -->
       <div id="tab-history" style="display:none">
         <div id="history-list"></div>
+      </div>
+
+      <!-- Stats tab -->
+      <div id="tab-stats" style="display:none">
+        <div id="stats-content"></div>
       </div>
 
       <!-- Billing tab -->
@@ -1431,22 +1440,62 @@ async function publishPR() {
     return;
   }
   
-  // Dispatch workflow with auto_pr=true
-  const inputs = {
-    prompt: 'Publish current changes as Pull Request',
-    mode: 'publish_pr',
-    target_repo: GH_REPO_FULL,
-    auto_pr: 'true',
-    agent_mode: agentMode
+  const _files = window._lastGeneratedFiles;
+  if (!_files || Object.keys(_files).length === 0) {
+    toast('⚠️ No generated files to publish. Run a generation first.', 'error');
+    return;
+  }
+  await _publishPRDirect(_files);
+}
+
+async function _publishPRDirect(files) {
+  const token = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
+  if (!token) { toast('⚠️ Add GitHub token in Settings to publish PRs', 'error'); return; }
+  if (!GH_REPO_FULL) { openRepoModal(); toast('⚠️ Select a repository first', 'warning'); return; }
+  const H = { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  const api = async (path, opts) => {
+    opts = opts || {};
+    const r = await fetch('https://api.github.com/repos/' + GH_REPO_FULL + path, { method: opts.method || 'GET', headers: Object.assign({}, H, opts.headers || {}), body: opts.body });
+    const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) {}
+    return { ok: r.ok, status: r.status, data: j, raw: t };
   };
-  
+  const blob = async (content) => (await fetch('https://api.github.com/repos/' + GH_REPO_FULL + '/git/blobs', { method:'POST', headers: Object.assign({}, H, {'Content-Type':'application/json'}), body: JSON.stringify({ content: content, encoding:'utf-8' }) })).json();
+  setSending(true);
   toast('🚀 Publishing PR to ' + GH_REPO_FULL + '...', 'info');
-  const wfResult = await dispatchWorkflow(inputs);
-  if (!wfResult.ok) {
-    appendMsgDOM({ role:'system', sender:'System', content: `❌ PR publish failed: ${wfResult.error}`, time: now() });
-  } else {
-    appendMsgDOM({ role:'system', sender:'System', content: `✅ PR dispatch initiated — Run #${wfResult.runId || '?'}`, time: now() });
-    await pollWorkflow(wfResult.runId, inputs.prompt, inputs);
+  try {
+    const branchName = 'vibe-code/publish-' + Date.now().toString(36);
+    const repoInfo = await (await fetch('https://api.github.com/repos/' + GH_REPO_FULL, { headers: H })).json();
+    const baseBranch = repoInfo.default_branch || 'main';
+    const refBase = await api('/git/refs/heads/' + baseBranch);
+    if (!refBase.ok) throw new Error('Cannot read base branch: ' + refBase.raw);
+    const baseSha = refBase.data.object.sha;
+    const baseCommit = await api('/git/commits/' + baseSha);
+    const baseTreeSha = baseCommit.data.tree.sha;
+    const treeEntries = [];
+    for (const path in files) {
+      const b = await blob(files[path]);
+      treeEntries.push({ path: path, mode:'100644', type:'blob', sha: b.sha });
+    }
+    const tree = await api('/git/trees', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ base_tree: baseTreeSha, tree: treeEntries }) });
+    if (!tree.ok) throw new Error('Tree creation failed: ' + tree.raw);
+    const commit = await api('/git/commits', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message:'feat: publish via VIBE-CODE', tree: tree.data.sha, parents: [baseSha] }) });
+    if (!commit.ok) throw new Error('Commit failed: ' + commit.raw);
+    let refRes = await api('/git/refs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ref:'refs/heads/' + branchName, sha: commit.data.sha }) });
+    if (!refRes.ok && refRes.status === 422) {
+      refRes = await api('/git/refs/heads/' + branchName, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sha: commit.data.sha, force:true }) });
+    }
+    if (!refRes.ok) throw new Error('Branch creation failed: ' + refRes.raw);
+    const prBody = '## Published by VIBE-CODE\n\nFiles: ' + Object.keys(files).join(', ') + '\n\nGenerated locally and pushed from the VIBE-CODE UI.';
+    const pr = await api('/pulls', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title:'feat: publish via VIBE-CODE', head: branchName, base: baseBranch, body: prBody }) });
+    if (!pr.ok) throw new Error('PR creation failed: ' + pr.raw);
+    appendMsgDOM({ role:'git', sender:'Git', badge:'PR Created', content:'🔗 Pull Request created: [' + pr.data.html_url + '](' + pr.data.html_url + ')', time: now() });
+    document.getElementById('pr-link-area').innerHTML = '<a class="pr-link" href="' + pr.data.html_url + '" target="_blank">🔗 View Pull Request</a>';
+    toast('✅ PR created', 'success');
+  } catch(e) {
+    appendMsgDOM({ role:'system', sender:'System', content:'❌ PR publish failed: ' + e.message, time: now() });
+    toast('❌ ' + e.message, 'error');
+  } finally {
+    setSending(false);
   }
 }
 
@@ -1567,7 +1616,7 @@ async function dispatchWorkflow(inputs) {
 async function pollWorkflow(runId, prompt, inputs) {
   const token = GH_TOKEN_LOCAL || ls('vc2_settings',{}).gh_token || '';
   if (!runId || !token) return;
-  const maxWait = 600000; // 10 min
+  const maxWait = 1800000; // 30 min
   const interval = 8000;
   const start = Date.now();
   let lastStatus = '';
@@ -1612,7 +1661,17 @@ async function loadResults(runId, prompt, inputs) {
       `https://api.github.com/repos/B3B3097/VIBE-CODE/actions/runs/${runId}/artifacts`,
       { headers: { 'Authorization': `Bearer ${token}` } }
     ).then(r=>r.json());
-    const arts = artsResp.artifacts || [];
+    let arts = artsResp.artifacts || [];
+    let attempts = 0;
+    while (arts.length === 0 && attempts < 4) {
+      await sleep(2500);
+      const retry = await fetch(
+        `https://api.github.com/repos/B3B3097/VIBE-CODE/actions/runs/${runId}/artifacts`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      ).then(r=>r.json());
+      arts = retry.artifacts || [];
+      attempts++;
+    }
 
     if (!window._runArtifactTokens) window._runArtifactTokens = {};
     window._runArtifactTokens[runId] = 0;
@@ -1701,7 +1760,30 @@ async function processArtifactZip(blob, artifactName) {
     const progress = files['_progress.json'];
     if (progress) {
       const p = JSON.parse(progress);
-      artifactTokens = p.total_tokens || 0;
+      artifactTokens = p.total_tokens || p.tokensUsed || 0;
+    }
+  } catch {}
+
+  // Store last generated files for Publish PR
+  const codeFilesAll = Object.entries(files).filter(([k]) => !k.startsWith('_'));
+  if (codeFilesAll.length > 0) {
+    window._lastGeneratedFiles = Object.fromEntries(codeFilesAll);
+  }
+
+  // Display model reasoning traces
+  try {
+    const reasoning = files['_reasoning.json'];
+    if (reasoning) {
+      const traces = JSON.parse(reasoning);
+      if (Array.isArray(traces) && traces.length > 0) {
+        const summary = traces.map(t => {
+          const head = '**' + (t.agent || 'agent') + ' · ' + (t.phase || '') + '**' + (t.tokens ? ' · ' + t.tokens + ' tok' : '') + (t.approved !== undefined ? ' · ' + (t.approved ? '✅ approved' : '❌ rejected') + (t.score !== undefined ? ' (' + t.score + '/10)' : '') : '');
+          const body = t.content ? t.content.slice(0, 1200) : '';
+          return head + '\n\n' + body;
+        }).join('\n\n---\n\n');
+        appendMsgDOM({ role:'planner', sender:'Reasoning', badge:'agent trace',
+          content: summary, time: now() });
+      }
     }
   } catch {}
 
@@ -1720,6 +1802,16 @@ async function processArtifactZip(blob, artifactName) {
     });
     // Offer download
     displayDownloadBtn(files, artifactName);
+  } else {
+    try {
+      const p = JSON.parse(files['_progress.json'] || '{}');
+      if (p.message || p.status) {
+        appendMsgDOM({ role:'system', sender:'VIBE-CODE',
+          content: (p.status === 'done' ? '✅ ' : '⚠️ ') + (p.message || p.status) +
+                   (p.total_tokens ? '\n\n**Tokens:** ' + p.total_tokens.toLocaleString() : ''),
+          time: now() });
+      }
+    } catch {}
   }
 
   if (releaseNotes) {
@@ -1819,6 +1911,43 @@ function renderHistory() {
 }
 
 // ── Agent Status ───────────────────────────────────────────────────────────────
+function renderStats() {
+  var hist = ls('vc2_history', []);
+  var c = document.getElementById('stats-content');
+  if (!hist.length) {
+    c.innerHTML = '<div style="color:var(--text3);font-size:12px;text-align:center;padding:30px">No runs yet — generate something to see stats.</div>';
+    return;
+  }
+  var totalTokens = hist.reduce(function(s,h){ return s + (h.tokens||0); }, 0);
+  var totalCost = hist.reduce(function(s,h){ return s + (Number(h.cost)||0); }, 0);
+  var paidRuns = hist.filter(function(h){ return h.cost !== null && !h.isFree; }).length;
+  var freeRuns = hist.filter(function(h){ return h.isFree; }).length;
+  var saved = hist.reduce(function(s,h){ return s + (h.isFree ? (h.tokens||0) * 0.002 / 1000 : 0); }, 0);
+  var byDay = {};
+  hist.forEach(function(h){ var d = new Date(h.ts).toLocaleDateString(); byDay[d] = (byDay[d]||0) + (h.tokens||0); });
+  var vals = Object.values(byDay);
+  var maxDay = Math.max.apply(null, [1].concat(vals));
+  var bars = Object.entries(byDay).slice(0,14).map(function(e){
+    var d = e[0], t = e[1];
+    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+      '<span style="font-size:10px;color:var(--text3);width:70px;text-align:right">' + d + '</span>' +
+      '<div style="flex:1;background:var(--bg2);border-radius:4px;height:18px;overflow:hidden">' +
+      '<div style="width:' + (t/maxDay*100).toFixed(0) + '%;height:100%;background:var(--accent);border-radius:4px"></div></div>' +
+      '<span style="font-size:10px;font-family:monospace;color:var(--text2);width:70px">' + t.toLocaleString() + ' tok</span></div>';
+  }).join('');
+  c.innerHTML =
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">' +
+      '<div class="stat-card"><div class="stat-n">' + totalTokens.toLocaleString() + '</div><div class="stat-l">Total tokens</div></div>' +
+      '<div class="stat-card"><div class="stat-n">$' + totalCost.toFixed(4) + '</div><div class="stat-l">Total spent</div></div>' +
+      '<div class="stat-card"><div class="stat-n">' + hist.length + '</div><div class="stat-l">Total runs</div></div>' +
+      '<div class="stat-card"><div class="stat-n">' + paidRuns + '</div><div class="stat-l">Paid runs</div></div>' +
+      '<div class="stat-card"><div class="stat-n">' + freeRuns + '</div><div class="stat-l">Free runs</div></div>' +
+      '<div class="stat-card"><div class="stat-n">$' + saved.toFixed(4) + '</div><div class="stat-l">Saved (free)</div></div>' +
+    '</div>' +
+    '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">Tokens per day</div>' +
+    (bars || '<div style="color:var(--text3);font-size:12px">No data</div>');
+}
+
 function resetAgentStatus() {
   ['planner','coder','git'].forEach(a => {
     document.getElementById(`dot-${a}`).className = 'agent-dot';
