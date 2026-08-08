@@ -1,0 +1,104 @@
+name: Notify Telegram Stats
+
+# ─────────────────────────────────────────────────────────────────────────
+# Запускается автоматически, как только завершится основной workflow генерации
+# ("VIBE-CODE v2 — Multi-Agent Platform"). Берёт статистику из артефакта
+# vibe-output-* (файл _progress.json) и из описания запуска (inputs через API),
+# затем отправляет сообщение в Telegram-канал от имени бота:
+#   [файл] · кол-во конфигов · было обновлено · время MSK
+# Нужны секреты репозитория: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+# ─────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_run:
+    workflows:
+      - "VIBE-CODE v2 — Multi-Agent Platform"
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Скачать артефакты завершённого workflow
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          run_id: ${{ github.event.workflow_run.id }}
+          name: vibe-output-${{ github.event.workflow_run.id }}
+          path: ./artifacts
+        continue-on-error: true
+
+      - name: Собрать статистику и отправить в Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          DISPLAY_TITLE: ${{ github.event.workflow_run.display_title }}
+        run: |
+          set -u
+
+          # ── 1. Данные запуска из API (inputs: file_name, mode, agent_mode) ──
+          RUN_DATA="$(curl -fsSL             -H "Authorization: Bearer ${GH_TOKEN}"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}" 2>/dev/null || echo '{}')"
+          FILE_NAME="$(printf '%s' "${RUN_DATA}" | jq -r '.inputs.file_name // "output.py"')"
+          MODE="$(printf '%s' "${RUN_DATA}" | jq -r '.inputs.mode // "generate"')"
+          AGENT_MODE="$(printf '%s' "${RUN_DATA}" | jq -r '.inputs.agent_mode // "single"')"
+
+          # ── 2. _progress.json из артефакта (токены, статус) ──
+          PROGRESS="$(find ./artifacts -name '_progress.json' -print -quit 2>/dev/null || true)"
+          STATUS="unknown"
+          TOKENS=0
+          if [ -n "${PROGRESS}" ] && [ -f "${PROGRESS}" ]; then
+            STATUS="$(jq -r '.status // "unknown"' "${PROGRESS}" 2>/dev/null || echo unknown)"
+            TOKENS="$(jq -r '.total_tokens // .tokensUsed // 0' "${PROGRESS}" 2>/dev/null || echo 0)"
+          fi
+
+          # ── 3. Кол-во конфигов (сгенерированные файлы, без служебных _*.json) ──
+          CONFIG_COUNT=0
+          if [ -d ./artifacts ]; then
+            CONFIG_COUNT=$(find ./artifacts -type f ! -name '_*.json' 2>/dev/null | wc -l | tr -d ' ')
+            [ -z "${CONFIG_COUNT}" ] && CONFIG_COUNT=0
+          fi
+
+          # ── 4. Было обновлено? (успешное завершение = файл обновлён) ──
+          if [ "${CONCLUSION}" = "success" ]; then
+            UPDATED="✅ да"
+          else
+            UPDATED="❌ нет"
+          fi
+
+          # ── 5. Время по МСК ──
+          MSK_TIME="$(TZ='Europe/Moscow' date '+%Y-%m-%d %H:%M MSK')"
+
+          # ── 6. Режим ──
+          MODE_LABEL="${MODE}"
+          [ "${MODE}" = "improve" ] && MODE_LABEL="improve (обновление)"
+
+          # ── 7. Сообщение ──
+          MSG="📊 VIBE-CODE — статистика генерации
+          ━━━━━━━━━━━━━━━━━━
+          📁 Файл: ${FILE_NAME}
+          🔢 Конфигов: ${CONFIG_COUNT}
+          🔄 Обновлено: ${UPDATED}
+          🧩 Режим: ${MODE_LABEL} · ${AGENT_MODE}
+          🪙 Токенов: ${TOKENS}
+          🕐 Время: ${MSK_TIME}
+          ━━━━━━━━━━━━━━━━━━
+          📝 ${DISPLAY_TITLE}"
+
+          echo "── Отправляем в Telegram ──"
+          echo "${MSG}"
+
+          # ── 8. Отправка в Telegram ──
+          RESPONSE="$(curl -fsSL -X POST             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}"             --data-urlencode "text=${MSG}"             --data-urlencode "disable_web_page_preview=true" 2>&1 || true)"
+
+          echo "Telegram response: ${RESPONSE}"
