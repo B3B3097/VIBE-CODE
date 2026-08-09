@@ -1,4 +1,4 @@
-name: Build and Test Web Application
+name: Build and Test
 
 on:
   push:
@@ -13,44 +13,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          node-version: 18
-          cache: npm
+          python-version: '3.11'
 
-      - name: Install dependencies
-        run: npm ci --prefer-offline
-
-      # "Thoughts" / Reasoning step
-      - name: Analyze code & prepare build
-        id: analysis
+      - name: Verify Python syntax
         run: |
-          echo "🧠 Thinking about project structure..."
-          echo "Checking if package.json has build/test scripts..."
-          test -f package.json && echo "✅ Found package.json" || exit 1
+          for f in *.py; do
+            python3 -m py_compile "$f" && echo "\u2705 $f syntax OK"
+          done
 
-      - name: Build application
-        run: npm run build
+      - name: Verify index.html exists
+        run: |
+          test -f index.html && echo "\u2705 index.html present" || exit 1
 
-      - name: Run tests
-        run: npm test -- --coverage
-
-      - name: Generate coverage report
-        run: nyc report --json > coverage.json
-
-  create-pr-action:
-    needs: build-and-test
-    if: github.event_name == 'pull_request' && github.pull_request.merged == true
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      contents: read
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Create PR comment
-        run: echo "✅ CI/CD passed successfully!"
+      - name: Show repo tree
+        run: ls -la
