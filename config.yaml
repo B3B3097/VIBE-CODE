@@ -1,4 +1,3 @@
-model:
   type: "text-generation"
   parameters:
     max_tokens: 1024
@@ -7,33 +6,4 @@ model:
     stream: true
     stop_sequences:
       - "\n\n"
-      - "##"
-    token_counting: true
-    memory_limit: 512
-    batch_size: 8
-    parallelism: true
 
-output:
-  format: "json"
-  fields:
-    - "response"
-    - "tokens_used"
-    - "thinking_process"
-    - "timestamp"
-
-ui:
-  real_time: true
-  display_options:
-    - "think"
-    - "token_count"
-    - "progress_bar"
-    - "model_status"
-  theme: "dark"
-  font_size: 14
-  load_time: 500
-
-performance:
-  latency_target: 200ms
-  batch_optimization: true
-  memory_mapping: true
-  caching: true
