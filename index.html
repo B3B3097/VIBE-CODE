@@ -674,6 +674,7 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
         Publish PR
       </button>
       <button class="topbar-btn" onclick="addChildChat()">⤵ Sub-chat</button>
+      <button class="topbar-btn" onclick="clearCurrentChat()" title="Clear all messages in this chat">🧹 Clear</button>
       <button class="topbar-btn danger" id="delete-chat-btn" onclick="deleteCurrentChat()" title="Delete this chat">🗑 Delete</button>
       <button class="topbar-btn primary" onclick="togglePanel()">⚙ Settings</button>
     </div>
@@ -1264,6 +1265,15 @@ function deleteCurrentChat() {
   }
   
   toast('Chat deleted', 'success');
+}
+
+function clearCurrentChat() {
+  if (!currentChatId) { toast('No chat selected', 'error'); return; }
+  if (!confirm('Clear all messages in this chat?')) return;
+  sessionMessages = [];
+  saveCurrentMessages([]);
+  renderMessages([]);
+  toast('Chat cleared', 'success');
 }
 
 // ── Messages ───────────────────────────────────────────────────────────────────
