@@ -115,6 +115,7 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
   font-weight:500;display:flex;align-items:center;gap:6px;transition:.15s
 }
 .topbar-btn:hover{background:var(--bg2);color:var(--text)}
+.topbar-btn:disabled{opacity:.45;cursor:not-allowed;background:transparent;color:var(--text3)}
 .topbar-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .topbar-btn.primary:hover{opacity:.85}
 .topbar-btn.danger:hover{background:rgba(255,77,109,.15);color:var(--red);border-color:var(--red)}
@@ -669,12 +670,11 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
         <span>📂</span>
         <span id="repo-chip-text">Select Repo</span>
       </div>
-      <button class="topbar-btn" id="publish-pr-btn" onclick="publishPR()" title="Publish Pull Request to selected repository">
+      <button class="topbar-btn" id="publish-pr-btn" onclick="publishPR()" title="Сначала дождитесь изменений модели" disabled>
         <svg height="16" width="16" viewBox="0 0 16 16" style="vertical-align:middle;margin-right:4px" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-4.22 0-.93.33-1.59.87-2.19-.36-.9-.83-2.34.18-4.8 0 0 1.5-.5 4.9 1.75 1.48-.41 2.99-.41 4.47 0 3.4-2.25 4.9-1.75 4.9-1.75 1.01 2.46.54 3.9.18 4.8.54.6.87 1.26.87 2.19 0 3.34-1.87 4.02-3.65 4.22.29.25.55.74.55 1.5v2.22c0 .21.15.46.55.38A8.001 8.001 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        Publish PR
+        Опубликовать изменения
       </button>
       <button class="topbar-btn" onclick="addChildChat()">⤵ Sub-chat</button>
-      <button class="topbar-btn" onclick="clearCurrentChat()" title="Clear all messages in this chat">🧹 Clear</button>
       <button class="topbar-btn danger" id="delete-chat-btn" onclick="deleteCurrentChat()" title="Delete this chat">🗑 Delete</button>
       <button class="topbar-btn primary" onclick="togglePanel()">⚙ Settings</button>
     </div>
@@ -1074,6 +1074,7 @@ let attachedFile = null, attachedContent = '';
 let panelOpen = true;
 let activeTab = 'settings';
 let allRepos = [];
+const generatedFilesByChat = new Map();
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 function ls(key, def) { try { return JSON.parse(localStorage.getItem(key)) ?? def; } catch { return def; } }
@@ -1189,9 +1190,11 @@ function switchChat(id) {
   const chat  = chats.find(c => c.id === id);
   if (!chat) return;
   document.getElementById('chat-title-input').value = chat.name;
-  if (chat.repo) { GH_REPO_FULL = chat.repo; updateRepoDisplay(chat.repo); }
+  GH_REPO_FULL = chat.repo || '';
+  updateRepoDisplay(GH_REPO_FULL, false);
   if (chat.mode) setMode(chat.mode, false);
   renderMessages(chat.messages || []);
+  updatePublishButton();
   renderChatTree();
 }
 
@@ -1200,6 +1203,38 @@ function saveCurrentMessages(msgs) {
   const chats = getChats();
   const idx   = chats.findIndex(c => c.id === currentChatId);
   if (idx >= 0) { chats[idx].messages = msgs; saveChats(chats); }
+}
+
+function getCurrentChat() {
+  return getChats().find(c => c.id === currentChatId) || null;
+}
+
+function getCurrentChatFiles() {
+  return generatedFilesByChat.get(currentChatId) || {};
+}
+
+function saveCurrentChatFiles(files) {
+  if (!currentChatId || !files || Object.keys(files).length === 0) return;
+  generatedFilesByChat.set(currentChatId, files);
+  updatePublishButton();
+}
+
+function getCurrentChatRepo() {
+  return (getCurrentChat()?.repo || '').trim();
+}
+
+function updatePublishButton(isBusy = false) {
+  const btn = document.getElementById('publish-pr-btn');
+  if (!btn) return;
+  const repo = getCurrentChatRepo();
+  const hasFiles = Object.keys(getCurrentChatFiles()).length > 0;
+  const hasToken = !!(GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token);
+  btn.disabled = isBusy || !repo || !hasFiles || !hasToken;
+  btn.title = isBusy ? 'Публикация выполняется…'
+    : !repo ? 'Выберите репозиторий в настройках текущего чата'
+    : !hasFiles ? 'Сначала дождитесь изменений модели в текущем чате'
+    : !hasToken ? 'Добавьте GitHub token в Settings'
+    : `Создать Pull Request в ${repo}`;
 }
 
 function renderChatTree() {
@@ -1249,6 +1284,7 @@ function deleteCurrentChat() {
   }
   
   const idsToDelete = [currentChatId].concat(collectDescendants(currentChatId));
+  idsToDelete.forEach(id => generatedFilesByChat.delete(id));
   
   // Filter out chats to delete
   const remainingChats = chats.filter(c => !idsToDelete.includes(c.id));
@@ -1265,15 +1301,6 @@ function deleteCurrentChat() {
   }
   
   toast('Chat deleted', 'success');
-}
-
-function clearCurrentChat() {
-  if (!currentChatId) { toast('No chat selected', 'error'); return; }
-  if (!confirm('Clear all messages in this chat?')) return;
-  sessionMessages = [];
-  saveCurrentMessages([]);
-  renderMessages([]);
-  toast('Chat cleared', 'success');
 }
 
 // ── Messages ───────────────────────────────────────────────────────────────────
@@ -1358,12 +1385,13 @@ function setMode(m, saveS = true) {
 }
 
 // ── Repo ───────────────────────────────────────────────────────────────────────
-function updateRepoDisplay(repo) {
+function updateRepoDisplay(repo, persist = true) {
   document.getElementById('repo-chip-text').textContent = repo || 'Select Repo';
   document.getElementById('settings-repo-name').textContent  = repo || 'Not selected';
   document.getElementById('settings-repo-desc').textContent  = repo
     ? `github.com/${repo}` : 'Click to choose a GitHub repository';
-  saveSetting('repo', repo);
+  if (persist) saveSetting('repo', repo);
+  updatePublishButton();
 }
 
 function openRepoModal() {
@@ -1434,78 +1462,137 @@ function filterRepos(q) {
 
 function confirmRepo() {
   const val = document.getElementById('repo-manual-input').value.trim();
-  if (val) { GH_REPO_FULL = val; updateRepoDisplay(val); }
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(val)) {
+    toast('⚠️ Укажите репозиторий в формате owner/repo', 'error');
+    return;
+  }
+  GH_REPO_FULL = val;
+  const chats = getChats();
+  const idx = chats.findIndex(c => c.id === currentChatId);
+  if (idx >= 0) {
+    chats[idx].repo = val;
+    saveChats(chats);
+    renderChatTree();
+  }
+  updateRepoDisplay(val, idx < 0);
   closeModal('repo-modal');
 }
 
 async function publishPR() {
   const token = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
+  const repo = getCurrentChatRepo();
+  const files = getCurrentChatFiles();
   if (!token) {
-    toast('⚠️ Add GitHub token in Settings to publish PRs', 'error');
+    toast('⚠️ Добавьте GitHub token в Settings', 'error');
     return;
   }
-  if (!GH_REPO_FULL) {
+  if (!repo) {
     openRepoModal();
-    toast('⚠️ Select a repository first', 'warning');
+    toast('⚠️ Выберите репозиторий в настройках текущего чата', 'warning');
     return;
   }
-  
-  const _files = window._lastGeneratedFiles;
-  if (!_files || Object.keys(_files).length === 0) {
-    toast('⚠️ No generated files to publish. Run a generation first.', 'error');
+  if (Object.keys(files).length === 0) {
+    toast('⚠️ В текущем чате ещё нет изменений модели', 'error');
     return;
   }
-  await _publishPRDirect(_files);
+  const chat = getCurrentChat();
+  const title = `feat: ${(chat?.name || 'изменения VIBE-CODE').slice(0, 66)}`;
+  await _publishPRDirect(repo, files, title);
 }
 
-async function _publishPRDirect(files) {
+async function _publishPRDirect(repo, files, title) {
   const token = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
-  if (!token) { toast('⚠️ Add GitHub token in Settings to publish PRs', 'error'); return; }
-  if (!GH_REPO_FULL) { openRepoModal(); toast('⚠️ Select a repository first', 'warning'); return; }
+  if (!token || !repo || !files || Object.keys(files).length === 0) return;
   const H = { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
-  const api = async (path, opts) => {
-    opts = opts || {};
-    const r = await fetch('https://api.github.com/repos/' + GH_REPO_FULL + path, { method: opts.method || 'GET', headers: Object.assign({}, H, opts.headers || {}), body: opts.body });
-    const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) {}
-    return { ok: r.ok, status: r.status, data: j, raw: t };
+  const api = async (path, opts = {}) => {
+    const r = await fetch(`https://api.github.com/repos/${repo}${path}`, {
+      method: opts.method || 'GET',
+      headers: Object.assign({}, H, opts.headers || {}),
+      body: opts.body
+    });
+    const raw = await r.text();
+    let data = null;
+    try { data = raw ? JSON.parse(raw) : {}; } catch {}
+    return { ok: r.ok, status: r.status, data, raw };
   };
-  const blob = async (content) => (await fetch('https://api.github.com/repos/' + GH_REPO_FULL + '/git/blobs', { method:'POST', headers: Object.assign({}, H, {'Content-Type':'application/json'}), body: JSON.stringify({ content: content, encoding:'utf-8' }) })).json();
+  const fail = (label, response) => {
+    const detail = response?.data?.message || response?.raw || `HTTP ${response?.status || '?'}`;
+    throw new Error(`${label}: ${String(detail).slice(0, 240)}`);
+  };
+
   setSending(true);
-  toast('🚀 Publishing PR to ' + GH_REPO_FULL + '...', 'info');
+  updatePublishButton(true);
+  toast(`🚀 Публикую изменения в ${repo}…`, 'info');
   try {
-    const branchName = 'vibe-code/publish-' + Date.now().toString(36);
-    const repoInfo = await (await fetch('https://api.github.com/repos/' + GH_REPO_FULL, { headers: H })).json();
-    const baseBranch = repoInfo.default_branch || 'main';
-    const refBase = await api('/git/refs/heads/' + baseBranch);
-    if (!refBase.ok) throw new Error('Cannot read base branch: ' + refBase.raw);
-    const baseSha = refBase.data.object.sha;
-    const baseCommit = await api('/git/commits/' + baseSha);
-    const baseTreeSha = baseCommit.data.tree.sha;
+    const invalidPath = Object.keys(files).find(path => !path || path.startsWith('/') || path.split('/').includes('..'));
+    if (invalidPath) throw new Error(`Недопустимый путь файла: ${invalidPath}`);
+
+    const repoInfo = await api('');
+    if (!repoInfo.ok) fail('Не удалось открыть репозиторий', repoInfo);
+    const baseBranch = repoInfo.data.default_branch;
+    if (!baseBranch) throw new Error('GitHub не вернул основную ветку репозитория');
+
+    const refBase = await api(`/git/ref/heads/${encodeURIComponent(baseBranch)}`);
+    if (!refBase.ok) fail('Не удалось прочитать основную ветку', refBase);
+    const baseSha = refBase.data?.object?.sha;
+    if (!baseSha) throw new Error('Не найден SHA основной ветки');
+
+    const baseCommit = await api(`/git/commits/${baseSha}`);
+    if (!baseCommit.ok) fail('Не удалось прочитать базовый commit', baseCommit);
+    const baseTreeSha = baseCommit.data?.tree?.sha;
+    if (!baseTreeSha) throw new Error('Не найден SHA базового дерева');
+
     const treeEntries = [];
-    for (const path in files) {
-      const b = await blob(files[path]);
-      treeEntries.push({ path: path, mode:'100644', type:'blob', sha: b.sha });
+    for (const [path, content] of Object.entries(files)) {
+      const blob = await api('/git/blobs', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ content: String(content), encoding: 'utf-8' })
+      });
+      if (!blob.ok || !blob.data?.sha) fail(`Не удалось подготовить ${path}`, blob);
+      treeEntries.push({ path, mode: '100644', type: 'blob', sha: blob.data.sha });
     }
-    const tree = await api('/git/trees', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ base_tree: baseTreeSha, tree: treeEntries }) });
-    if (!tree.ok) throw new Error('Tree creation failed: ' + tree.raw);
-    const commit = await api('/git/commits', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message:'feat: publish via VIBE-CODE', tree: tree.data.sha, parents: [baseSha] }) });
-    if (!commit.ok) throw new Error('Commit failed: ' + commit.raw);
-    let refRes = await api('/git/refs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ref:'refs/heads/' + branchName, sha: commit.data.sha }) });
-    if (!refRes.ok && refRes.status === 422) {
-      refRes = await api('/git/refs/heads/' + branchName, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sha: commit.data.sha, force:true }) });
-    }
-    if (!refRes.ok) throw new Error('Branch creation failed: ' + refRes.raw);
-    const prBody = '## Published by VIBE-CODE\n\nFiles: ' + Object.keys(files).join(', ') + '\n\nGenerated locally and pushed from the VIBE-CODE UI.';
-    const pr = await api('/pulls', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title:'feat: publish via VIBE-CODE', head: branchName, base: baseBranch, body: prBody }) });
-    if (!pr.ok) throw new Error('PR creation failed: ' + pr.raw);
-    appendMsgDOM({ role:'git', sender:'Git', badge:'PR Created', content:'🔗 Pull Request created: [' + pr.data.html_url + '](' + pr.data.html_url + ')', time: now() });
-    document.getElementById('pr-link-area').innerHTML = '<a class="pr-link" href="' + pr.data.html_url + '" target="_blank">🔗 View Pull Request</a>';
-    toast('✅ PR created', 'success');
+
+    const tree = await api('/git/trees', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ base_tree: baseTreeSha, tree: treeEntries })
+    });
+    if (!tree.ok || !tree.data?.sha) fail('Не удалось создать дерево изменений', tree);
+
+    const commit = await api('/git/commits', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ message: title, tree: tree.data.sha, parents: [baseSha] })
+    });
+    if (!commit.ok || !commit.data?.sha) fail('Не удалось создать commit', commit);
+
+    const branchName = `vibe-code/${Date.now().toString(36)}`;
+    const branch = await api('/git/refs', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: commit.data.sha })
+    });
+    if (!branch.ok) fail('Не удалось создать ветку', branch);
+
+    const fileList = Object.keys(files).map(path => `- \`${path}\``).join('\n');
+    const pr = await api('/pulls', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        title,
+        head: branchName,
+        base: baseBranch,
+        body: `## Изменения\n\nОпубликовано из VIBE-CODE для текущего чата.\n\n${fileList}`
+      })
+    });
+    if (!pr.ok || !pr.data?.html_url) fail('Не удалось создать Pull Request', pr);
+
+    appendMsgDOM({ role:'git', sender:'Git', badge:'PR Created', content:`🔗 Pull Request создан: [${pr.data.html_url}](${pr.data.html_url})`, time: now() });
+    document.getElementById('pr-link-area').innerHTML = `<a class="pr-link" href="${pr.data.html_url}" target="_blank" rel="noopener noreferrer">🔗 Открыть Pull Request</a>`;
+    toast('✅ Pull Request создан', 'success');
   } catch(e) {
-    appendMsgDOM({ role:'system', sender:'System', content:'❌ PR publish failed: ' + e.message, time: now() });
-    toast('❌ ' + e.message, 'error');
+    appendMsgDOM({ role:'system', sender:'System', content:`❌ Не удалось опубликовать изменения: ${e.message}`, time: now() });
+    toast(`❌ ${e.message}`, 'error');
   } finally {
     setSending(false);
+    updatePublishButton();
   }
 }
 
@@ -1774,10 +1861,10 @@ async function processArtifactZip(blob, artifactName) {
     }
   } catch {}
 
-  // Store last generated files for Publish PR
+  // Store generated files in the current chat so another chat cannot publish them.
   const codeFilesAll = Object.entries(files).filter(([k]) => !k.startsWith('_'));
   if (codeFilesAll.length > 0) {
-    window._lastGeneratedFiles = Object.fromEntries(codeFilesAll);
+    saveCurrentChatFiles(Object.fromEntries(codeFilesAll));
   }
 
   // Display model reasoning traces
@@ -2012,6 +2099,7 @@ function setSending(b) {
   const hasToken = !!(GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token);
   document.getElementById('send-btn').disabled = b || !hasToken;
   document.getElementById('prompt-input').disabled = b;
+  updatePublishButton(b);
 }
 
 // Update send button & placeholder based on auth state
@@ -2028,6 +2116,7 @@ function updateSendState() {
     btn.title = '';
     input.placeholder = 'Describe what to build, fix, or improve…';
   }
+  updatePublishButton();
 }
 
 function cycleIter() {
