@@ -21,8 +21,19 @@ AUTO_NOTES     = os.getenv("AUTO_NOTES",    "true").lower()  == "true"
 ENABLE_TOOLS   = os.getenv("ENABLE_TOOLS",  "true").lower()  == "true"
 
 PROMPT         = os.getenv("PROMPT",        "")
-FILE_NAME      = os.getenv("FILE_NAME",     "")
+FILE_NAME      = os.getenv("FILE_NAME",     "").strip()
 MODE           = os.getenv("MODE",          "generate")
+
+# If the UI did not pass a filename, try to extract one from prompts such as
+# "Создай файл test.txt" or "create file src/main.py".
+if not FILE_NAME:
+    filename_match = re.search(
+        r"(?:файл|file)\s+[`\"']?([\w./\\-]+\.[A-Za-z0-9]{1,12})[`\"']?",
+        PROMPT,
+        flags=re.IGNORECASE,
+    )
+    if filename_match:
+        FILE_NAME = filename_match.group(1).replace("\\", "/").lstrip("/")
 MAX_TOKENS     = int(os.getenv("MAX_TOKENS", "4096"))
 UNCENSORED     = os.getenv("UNCENSORED", "false").lower() in ("true", "1", "yes", "on")
 UNCENSORED_ADDENDUM = """
@@ -1361,11 +1372,12 @@ class Orchestrator:
         result["files"] = files
 
         # ── 6. COMMIT / PR ─────────────────────────────────────────────────────
+        can_auto_pr = AUTO_PR and bool(TARGET_REPO) and bool(GH_TOKEN)
         if AUTO_PR and not TARGET_REPO:
-            raise RuntimeError("AUTO_PR is enabled, but TARGET_REPO is empty")
-        if AUTO_PR and not GH_TOKEN:
-            raise RuntimeError("AUTO_PR is enabled, but GH_TOKEN is unavailable")
-        if self.git and AUTO_PR:
+            print("⚠️ Auto PR skipped: TARGET_REPO is empty")
+        elif AUTO_PR and not GH_TOKEN:
+            print("⚠️ Auto PR skipped: GitHub token is unavailable")
+        if self.git and can_auto_pr:
             self._transition(AgentState.COMMITTING,
                              f"🚀 Committing {len(files)} file(s) to GitHub...")
             ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
@@ -1504,11 +1516,12 @@ def run_single_agent():
     pr_url = ""
 
     git = GitIntegration(TARGET_REPO, GH_TOKEN) if TARGET_REPO and GH_TOKEN else None
-    if AUTO_PR:
-        if not TARGET_REPO:
-            raise RuntimeError("AUTO_PR is enabled, but TARGET_REPO is empty")
-        if not GH_TOKEN:
-            raise RuntimeError("AUTO_PR is enabled, but GH_TOKEN is unavailable")
+    can_auto_pr = AUTO_PR and bool(TARGET_REPO) and bool(GH_TOKEN)
+    if AUTO_PR and not TARGET_REPO:
+        print("⚠️ Auto PR skipped: TARGET_REPO is empty")
+    elif AUTO_PR and not GH_TOKEN:
+        print("⚠️ Auto PR skipped: GitHub token is unavailable")
+    if can_auto_pr:
         write_progress("committing", f"Publishing {len(files)} file(s) to {TARGET_REPO}",
                        total_tokens, agent="git", extra={"state": "committing"})
         branch = f"vibe-code/{datetime.datetime.utcnow():%Y%m%d-%H%M%S}"
