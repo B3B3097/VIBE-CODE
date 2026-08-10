@@ -61,9 +61,17 @@ on:
         default: 'false'
         type: choice
         options: ['false', 'true']
-      # NOTE: All API keys are stored as GitHub repository secrets.
-      # Go to Settings → Secrets → Actions to add them.
-      # Supported secret names: SERPER_API_KEY, BRAVE_API_KEY, OPENAI_API_KEY,
+      secrets_repo:
+        description: 'Private repo with API keys (owner/repo, empty = use repo secrets)'
+        default: ''
+      secrets_path:
+        description: 'Path to env file with API keys inside secrets repo'
+        default: 'vibe/secrets.env'
+      # NOTE: API keys can be stored either as GitHub repository secrets or in a
+      # private repo of your own (see secrets_repo / secrets_path inputs). The
+      # workflow reads the env file from that private repo at run start using
+      # the GH_PAT token (your personal access token) added as a repository secret.
+      # Supported variable names: SERPER_API_KEY, BRAVE_API_KEY, OPENAI_API_KEY,
       # ANTHROPIC_API_KEY, GROQ_API_KEY, TOGETHER_API_KEY, HF_API_KEY,
       # OPENWEATHER_API_KEY, NEWS_API_KEY, GNEWS_API_KEY, JUDGE0_API_KEY,
       # ALPHAVANTAGE_API_KEY, EXCHANGERATE_API_KEY, UNSPLASH_API_KEY,
@@ -188,11 +196,53 @@ jobs:
         if: inputs.agent_mode == 'multi' && inputs.model_coder != 'bonsai-27b'
         run: ollama pull ${{ inputs.model_coder }}
 
+      # ── Resolve token: GH_PAT (user PAT) or default GITHUB_TOKEN ─────────────
+      # GITHUB_TOKEN only works inside B3B3097/VIBE-CODE. To create branches/PRs
+      # in another target repo, add a personal access token as the GH_PAT secret:
+      # Settings → Secrets and variables → Actions → New repository secret.
+      # Classic PAT scope: repo. Fine-grained: Contents (R/W) + Pull requests (R/W).
+      - name: Resolve GitHub token
+        id: resolve-token
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -n "$GH_PAT" ]; then
+            echo "token=$GH_PAT" >> "$GITHUB_OUTPUT"
+          else
+            echo "token=${{ secrets.GITHUB_TOKEN }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Load API keys from the user's private secrets repo ───────────────────
+      # The env file (e.g. vibe/secrets.env) lives in your private repo and is
+      # fetched with the GH_PAT token (your PAT). Values are exported to the
+      # environment so generate.py can use them without storing them anywhere.
+      - name: Load secrets from private repo
+        if: inputs.secrets_repo != ''
+        env:
+          TOKEN: ${{ steps.resolve-token.outputs.token }}
+          SECRETS_REPO: ${{ inputs.secrets_repo }}
+          SECRETS_PATH: ${{ inputs.secrets_path || 'vibe/secrets.env' }}
+        run: |
+          if ! curl -fsSL -H "Authorization: Bearer $TOKEN" \
+               -H "Accept: application/vnd.github.raw+json" \
+               "https://api.github.com/repos/$SECRETS_REPO/contents/$SECRETS_PATH" \
+               -o /tmp/vibe-secrets.env; then
+            echo "⚠️ Secrets file not found in $SECRETS_REPO:$SECRETS_PATH — continuing without it"
+          else
+            while IFS= read -r line || [ -n "$line" ]; do
+              case "$line" in
+                ""|\#*) continue ;;
+                *=*) echo "$line" >> "$GITHUB_ENV" ;;
+              esac
+            done < /tmp/vibe-secrets.env
+            echo "✅ Loaded API keys from $SECRETS_REPO:$SECRETS_PATH"
+          fi
+
       # ── Fetch target repo context ─────────────────────────────────────────────
       - name: Fetch target repo context
         if: inputs.target_repo != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.resolve-token.outputs.token }}
         run: |
           echo "Reading repo: ${{ inputs.target_repo }}"
           python3 read_repo.py "${{ inputs.target_repo }}" "$GH_TOKEN" 60000 > /tmp/repo_ctx_raw.txt 2>&1 || true
@@ -208,7 +258,7 @@ jobs:
           AGENT_MODE:    "${{ inputs.agent_mode }}"
           ENABLE_TOOLS:  "${{ inputs.enable_tools }}"
           TARGET_REPO:   "${{ inputs.target_repo }}"
-          GH_TOKEN:      "${{ secrets.GITHUB_TOKEN }}"
+          GH_TOKEN:      "${{ steps.resolve-token.outputs.token }}"
           AUTO_PR:       "${{ inputs.auto_pr }}"
           AUTO_NOTES:    "${{ inputs.auto_notes }}"
           MODEL_PLANNER: "${{ inputs.model_planner }}"
