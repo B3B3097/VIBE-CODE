@@ -9,9 +9,10 @@ import yaml
 from datetime import datetime, timedelta
 from pathlib import Path
 
-RESULTS_DIR = Path("/workspace/results")
-TOKEN_USAGE_FILE = Path("/workspace/token_usage.yaml")
-OUTPUT_DIR = Path("/workspace/output")
+ROOT_DIR = Path(os.environ.get("GITHUB_WORKSPACE", Path(__file__).resolve().parent))
+RESULTS_DIR = Path(os.environ.get("RESULTS_DIR", ROOT_DIR / "results"))
+TOKEN_USAGE_FILE = Path(os.environ.get("TOKEN_USAGE_FILE", ROOT_DIR / "token_usage.yaml"))
+README_FILE = Path(os.environ.get("README_FILE", ROOT_DIR / "README.md"))
 
 def scan_results():
     """Сканирует все папки results и собирает статистику"""
@@ -20,6 +21,9 @@ def scan_results():
     total_tokens = 0
     total_runs = 0
     
+    if not RESULTS_DIR.exists():
+        return users_data, daily_stats, total_tokens, total_runs
+
     for run_folder in RESULTS_DIR.iterdir():
         if not run_folder.is_dir() or run_folder.name.startswith('.'):
             continue
@@ -86,8 +90,9 @@ def scan_results():
                     # Грубая оценка: ~4 символа = 1 токен
                     tokens_used = len(content) // 4
         
-        if tokens_used <= 0:
-            tokens_used = 1000  # Дефолтное значение
+        # Не подставляем выдуманное значение: если точного счётчика и
+        # генерированного файла нет, запуск учитывается с нулём токенов.
+        tokens_used = max(0, int(tokens_used or 0))
         
         total_tokens += tokens_used
         total_runs += 1
@@ -256,7 +261,7 @@ def update_readme():
         users_table += f"| {i} | `{u['login']}` | {u['tokens']:,} | {u['runs']} |\n"
     
     # Читаем текущий README
-    with open('/workspace/README.md', 'r', encoding='utf-8') as f:
+    with open(README_FILE, 'r', encoding='utf-8') as f:
         readme_content = f.read()
     
     # Находим секцию для статистики или добавляем новую
@@ -309,7 +314,7 @@ _Данные автоматически обновляются при кажд�
         # Добавляем перед последним разделом
         readme_content = readme_content.replace("</div>\n\n", stats_section + "\n</div>\n\n")
     
-    with open('/workspace/README.md', 'w', encoding='utf-8') as f:
+    with open(README_FILE, 'w', encoding='utf-8') as f:
         f.write(readme_content)
     
     print("✓ Updated README.md with token statistics")
