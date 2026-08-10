@@ -811,7 +811,7 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
           <div class="setting-label">Automation</div>
           <div class="setting-toggle">
             <span class="toggle-label">Auto PR on completion</span>
-            <label class="toggle"><input type="checkbox" id="tog-auto-pr"
+            <label class="toggle"><input type="checkbox" id="tog-auto-pr" checked
               onchange="saveSetting('auto_pr',this.checked)"><span class="toggle-slider"></span></label>
           </div>
           <div class="setting-toggle">
@@ -1105,7 +1105,7 @@ function loadSettings() {
   document.getElementById('sel-single').value  = s.single_model  || 'qwen2.5-coder:7b';
   document.getElementById('inp-max-tokens').value = s.max_tokens || 4096;
   document.getElementById('inp-budget').value  = s.total_budget || 0;
-  document.getElementById('tog-auto-pr').checked    = !!s.auto_pr;
+  document.getElementById('tog-auto-pr').checked    = s.auto_pr !== false;
   document.getElementById('tog-auto-notes').checked = s.auto_notes !== false;
   document.getElementById('tog-inherit').checked    = s.inherit_ctx !== false;
   if (s.gh_token) document.getElementById('inp-gh-token').value = s.gh_token;
@@ -1643,7 +1643,7 @@ async function send() {
     total_budget:String(tokenBudget || s.total_budget || 0),
     agent_mode:  agentMode,
     target_repo: GH_REPO_FULL || '',
-    auto_pr:     String(!!s.auto_pr),
+    auto_pr:     String(s.auto_pr !== false),
     auto_notes:  String(s.auto_notes !== false),
     enable_tools:'true',
     model_planner: s.planner_model || 'qwen2.5:7b',
@@ -1876,6 +1876,7 @@ async function processArtifactZip(blob, artifactName) {
         const summary = traces.map(t => {
           const head = '**' + (t.agent || 'agent') + ' · ' + (t.phase || '') + '**' + (t.tokens ? ' · ' + t.tokens + ' tok' : '') + (t.approved !== undefined ? ' · ' + (t.approved ? '✅ approved' : '❌ rejected') + (t.score !== undefined ? ' (' + t.score + '/10)' : '') : '');
           const body = t.content ? t.content.slice(0, 1200) : '';
+          addTraceItem(t.phase || 'running', body || 'Step completed', t.tokens || 0);
           return head + '\n\n' + body;
         }).join('\n\n---\n\n');
         appendMsgDOM({ role:'planner', sender:'Reasoning', badge:'agent trace',
@@ -2076,7 +2077,7 @@ function setDot(agent, cls, label) {
 
 function addTraceItem(state, message, tokens) {
   const list = document.getElementById('agent-trace-list');
-  if (list.children.length === 1 && list.firstChild.tagName !== 'DIV'.includes('trace')) {
+  if (list.children.length === 1 && !list.firstElementChild?.classList.contains('trace-item')) {
     list.innerHTML = '';
   }
   const stateColors = {
@@ -2168,14 +2169,17 @@ function togglePanel() {
 
 function showTab(name) {
   activeTab = name;
-  ['settings','integrations','notes','trace','history'].forEach(t => {
-    document.getElementById(`tab-${t}`).style.display = t === name ? '' : 'none';
+  const tabs = ['settings','integrations','notes','trace','history','stats','billing'];
+  tabs.forEach(t => {
+    const panel = document.getElementById(`tab-${t}`);
+    if (panel) panel.style.display = t === name ? '' : 'none';
   });
   document.querySelectorAll('.rpanel-tab').forEach((btn,i) => {
-    const tabs = ['settings','integrations','notes','trace','history'];
     btn.classList.toggle('active', tabs[i] === name);
   });
   if (name === 'integrations') renderIntegrations();
+  if (name === 'stats') renderStats();
+  if (name === 'billing') loadBillingHistory();
 }
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
