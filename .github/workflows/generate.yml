@@ -30,9 +30,9 @@ on:
         default: ''
       auto_pr:
         description: 'Create PR automatically'
-        default: 'false'
+        default: 'true'
         type: choice
-        options: ['false', 'true']
+        options: ['true', 'false']
       auto_notes:
         description: 'Generate release notes'
         default: 'true'
@@ -347,6 +347,8 @@ jobs:
           cp /tmp/vibe_output/_release_notes.md "$FOLDER/" 2>/dev/null || true
           cp /tmp/vibe_output/_pr_url.txt        "$FOLDER/" 2>/dev/null || true
           cp /tmp/vibe_output/_tools_status.json "$FOLDER/" 2>/dev/null || true
+          cp /tmp/vibe_output/_progress.json     "$FOLDER/" 2>/dev/null || true
+          cp /tmp/vibe_output/_reasoning.json    "$FOLDER/" 2>/dev/null || true
 
           cat > "$FOLDER/_run_summary.md" << SUMMARY
           # VIBE-CODE Run Summary
@@ -363,7 +365,13 @@ jobs:
           | **Timestamp** | $(date -u +"%Y-%m-%d %H:%M UTC") |
           SUMMARY
 
-          git add "$FOLDER"
+          if python3 -m pip install -q pyyaml && python3 update_token_stats.py; then
+            echo "✅ Token statistics updated"
+          else
+            echo "⚠️ Token statistics update failed; generated results will still be committed"
+          fi
+
+          git add "$FOLDER" token_usage.yaml README.md
           if git diff --staged --quiet; then
             echo "Nothing to commit — outputs folder is empty or unchanged"
           else
