@@ -1,0 +1,430 @@
+name: VIBE-CODE Create PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Run ID of generate.yml (from Actions tab URL)'
+        required: true
+        default: ''
+      target_repo:
+        description: 'Target repo for PR (owner/repo)'
+        required: true
+        default: ''
+      base_branch:
+        description: 'Base branch in target repo'
+        required: true
+        default: 'main'
+      branch_name:
+        description: 'New branch name (leave empty for auto)'
+        default: ''
+      pr_title:
+        description: 'PR title (leave empty for auto)'
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+
+      # ══════════════════════════════════════════════════════════════════════
+      # 1. VALIDATE INPUTS
+      # ══════════════════════════════════════════════════════════════════════
+      - name: Validate inputs
+        run: |
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║           VIBE-CODE v3 — Create PR                      ║"
+          echo "╚══════════════════════════════════════════════════════════╝"
+          echo ""
+          if [ -z "${{ inputs.run_id }}" ]; then
+            echo "❌ ERROR: run_id is required"
+            exit 1
+          fi
+          if [ -z "${{ inputs.target_repo }}" ]; then
+            echo "❌ ERROR: target_repo is required"
+            exit 1
+          fi
+          echo "✅ Inputs valid:"
+          echo "   Run ID:       ${{ inputs.run_id }}"
+          echo "   Target repo:  ${{ inputs.target_repo }}"
+          echo "   Base branch:  ${{ inputs.base_branch }}"
+          echo "   Branch name:  ${{ inputs.branch_name || '(auto)' }}"
+          echo "   PR title:     ${{ inputs.pr_title || '(auto)' }}"
+
+      # ══════════════════════════════════════════════════════════════════════
+      # 2. CHECKOUT VIBE-CODE (for local results fallback)
+      # ══════════════════════════════════════════════════════════════════════
+      - name: Checkout VIBE-CODE
+        uses: actions/checkout@v5
+
+      # ══════════════════════════════════════════════════════════════════════
+      # 3. RESOLVE GITHUB TOKEN
+      # ══════════════════════════════════════════════════════════════════════
+      - name: Resolve GitHub token
+        id: resolve-token
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -n "$GH_PAT" ]; then
+            echo "token=$GH_PAT" >> "$GITHUB_OUTPUT"
+            echo "source=GH_PAT" >> "$GITHUB_OUTPUT"
+            echo "🔑 Using GH_PAT (personal access token)"
+          else
+            echo "token=${{ secrets.GITHUB_TOKEN }}" >> "$GITHUB_OUTPUT"
+            echo "source=GITHUB_TOKEN" >> "$GITHUB_OUTPUT"
+            echo "🔑 Using default GITHUB_TOKEN"
+            echo "⚠️  GITHUB_TOKEN may not have access to external repos."
+            echo "   For PRs to other repos, add GH_PAT secret."
+          fi
+
+      # ══════════════════════════════════════════════════════════════════════
+      # 4. DOWNLOAD ARTIFACT FROM RUN
+      # ══════════════════════════════════════════════════════════════════════
+      - name: Download artifact from run
+        id: download-artifact
+        env:
+          GH_TOKEN: ${{ steps.resolve-token.outputs.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          echo "📦 Fetching artifacts for run $RUN_ID..."
+          
+          # Get artifacts list
+          ARTIFACTS=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+                          -H "Accept: application/vnd.github+json" \
+                          "https://api.github.com/repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts")
+          
+          # Find vibe-output artifact
+          ARTIFACT_ID=$(echo "$ARTIFACTS" | python3 -c "
+          import json, sys
+          try:
+              data = json.load(sys.stdin)
+              for a in data.get('artifacts', []):
+                  if a['name'].startswith('vibe-output-'):
+                      print(a['id'])
+                      break
+          except Exception:
+              pass
+          " 2>/dev/null)
+          
+          if [ -z "$ARTIFACT_ID" ]; then
+            echo "⚠️  No vibe-output artifact found via API in run $RUN_ID"
+            echo "   Will try local results folder as fallback."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
+          echo "Found artifact ID: $ARTIFACT_ID"
+          
+          # Download artifact
+          curl -L -H "Authorization: Bearer $GH_TOKEN" \
+               -H "Accept: application/vnd.github+json" \
+               "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
+               -o /tmp/artifact.zip
+          
+          if [ ! -f /tmp/artifact.zip ] || [ ! -s /tmp/artifact.zip ]; then
+            echo "❌ Failed to download artifact"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
+          echo "Downloaded artifact: $(ls -la /tmp/artifact.zip)"
+          
+          # Extract
+          mkdir -p /tmp/artifact
+          unzip -q /tmp/artifact.zip -d /tmp/artifact
+          
+          echo "=== Artifact contents ==="
+          find /tmp/artifact -type f | head -20
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
+      # ══════════════════════════════════════════════════════════════════════
+      # 5. FALLBACK: LOCAL RESULTS FOLDER
+      # ══════════════════════════════════════════════════════════════════════
+      - name: Try fallback - local results folder
+        if: steps.download-artifact.outputs.found != 'true'
+        run: |
+          FOLDER="results/run-${{ inputs.run_id }}"
+          echo "📂 Trying local folder: $FOLDER"
+          
+          if [ ! -d "$FOLDER" ]; then
+            echo "❌ ERROR: Neither artifact nor local results folder found for run ${{ inputs.run_id }}"
+            echo ""
+            echo "Available results folders:"
+            ls -d results/run-* 2>/dev/null || echo "(none)"
+            exit 1
+          fi
+          
+          mkdir -p /tmp/artifact
+          cp -r "$FOLDER"/* /tmp/artifact/ 2>/dev/null || true
+          
+          # Extract ZIP if present
+          if [ -f "$FOLDER/vibe-output.zip" ]; then
+            echo "Extracting nested ZIP..."
+            unzip -q -o "$FOLDER/vibe-output.zip" -d /tmp/artifact/
+          fi
+          
+          echo "=== Local results contents ==="
+          find /tmp/artifact -type f | head -20
+
+      # ══════════════════════════════════════════════════════════════════════
+      # 6. EXTRACT AND PREPARE FILES
+      # ══════════════════════════════════════════════════════════════════════
+      - name: Prepare files for PR
+        run: |
+          echo "📋 Preparing files for PR..."
+          
+          # Find nested ZIP (artifact may contain vibe_output.zip)
+          ZIP_FILE=$(find /tmp/artifact -name "*.zip" -type f | head -1)
+          
+          mkdir -p /tmp/pr_files
+          
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Found nested ZIP: $ZIP_FILE"
+            unzip -q -o "$ZIP_FILE" -d /tmp/pr_files
+            # Remove the zip from pr_files
+            rm -f "$ZIP_FILE"
+            # Flatten if there's a vibe_output subfolder
+            INNER=$(find /tmp/pr_files -maxdepth 1 -type d -name "vibe_output" | head -1)
+            if [ -n "$INNER" ]; then
+              mv "$INNER"/* /tmp/pr_files/ 2>/dev/null || true
+              rmdir "$INNER" 2>/dev/null || true
+            fi
+          else
+            echo "No nested ZIP, using artifact root directly"
+            cp -r /tmp/artifact/* /tmp/pr_files/ 2>/dev/null || true
+          fi
+          
+          # Remove metadata files (should not go into target repo)
+          rm -f /tmp/pr_files/_*.json /tmp/pr_files/_*.md /tmp/pr_files/_*.txt 2>/dev/null || true
+          rm -f /tmp/pr_files/vibe-output.zip 2>/dev/null || true
+          
+          echo "═══ Files to commit ═══"
+          find /tmp/pr_files -type f | while read f; do
+            SIZE=$(wc -c < "$f")
+            echo "  📄 $f ($SIZE bytes)"
+          done
+          
+          FILE_COUNT=$(find /tmp/pr_files -type f | wc -l)
+          echo ""
+          echo "Total: $FILE_COUNT file(s)"
+          
+          if [ "$FILE_COUNT" -eq 0 ]; then
+            echo "❌ ERROR: No files to commit!"
+            exit 1
+          fi
+
+      # ══════════════════════════════════════════════════════════════════════
+      # 7. CLONE TARGET REPO AND CREATE BRANCH
+      # ══════════════════════════════════════════════════════════════════════
+      - name: Clone target repo and create branch
+        id: clone
+        env:
+          GH_TOKEN: ${{ steps.resolve-token.outputs.token }}
+          TARGET_REPO: ${{ inputs.target_repo }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+        run: |
+          # Determine branch name
+          if [ -n "${{ inputs.branch_name }}" ]; then
+            BRANCH="${{ inputs.branch_name }}"
+          else
+            BRANCH="vibe-code/run-${{ inputs.run_id }}-$(date +%s)"
+          fi
+          echo "branch_name=$BRANCH" >> "$GITHUB_OUTPUT"
+          
+          echo "🔧 Cloning $TARGET_REPO..."
+          git clone "https://x-access-token:$GH_TOKEN@github.com/$TARGET_REPO.git" /tmp/target
+          cd /tmp/target
+          
+          echo "📋 Fetching $BASE_BRANCH..."
+          git fetch origin "$BASE_BRANCH"
+          git checkout "$BASE_BRANCH"
+          
+          echo "🌿 Creating branch: $BRANCH"
+          git checkout -b "$BRANCH"
+          echo "✅ Branch created"
+
+      # ══════════════════════════════════════════════════════════════════════
+      # 8. COPY GENERATED FILES TO TARGET REPO
+      # ══════════════════════════════════════════════════════════════════════
+      - name: Copy generated files to target repo
+        run: |
+          echo "📋 Copying files to target repo..."
+          
+          cd /tmp/target
+          
+          find /tmp/pr_files -maxdepth 3 -type f ! -name '_*' | while read f; do
+            # Get relative path
+            rel="${f#/tmp/pr_files/}"
+            # Strip possible vibe_output/ prefix
+            rel="${rel#vibe_output/}"
+            
+            target="/tmp/target/$rel"
+            mkdir -p "$(dirname "$target")"
+            cp "$f" "$target"
+            echo "  ✅ $rel"
+          done
+          
+          echo ""
+          echo "═══ Changes in target repo ═══"
+          git status --short
+
+      # ══════════════════════════════════════════════════════════════════════
+      # 9. COMMIT AND PUSH
+      # ══════════════════════════════════════════════════════════════════════
+      - name: Commit and push
+        id: commit
+        env:
+          GH_TOKEN: ${{ steps.resolve-token.outputs.token }}
+        run: |
+          cd /tmp/target
+          git config user.name "VIBE-CODE Bot"
+          git config user.email "vibecode-bot@users.noreply.github.com"
+          
+          git add -A
+          
+          if git diff --staged --quiet; then
+            echo "⚠️  No changes to commit"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
+          # Build commit message from run summary if available
+          PROMPT=""
+          if [ -f /tmp/artifact/_run_summary.md ]; then
+            PROMPT=$(grep -i "Prompt" /tmp/artifact/_run_summary.md | head -1 | cut -d'|' -f3 | xargs || echo "")
+          fi
+          if [ -z "$PROMPT" ]; then
+            PROMPT="VIBE-CODE generated"
+          fi
+          
+          # Write commit message to file (safe with quotes/special chars)
+          cat > /tmp/commit_msg.txt << EOF
+          feat(vibe): $PROMPT
+
+          Generated by VIBE-CODE from run ${{ inputs.run_id }}
+          Source: https://github.com/${{ github.repository }}/actions/runs/${{ inputs.run_id }}
+          EOF
+          
+          git commit -F /tmp/commit_msg.txt
+          git push origin HEAD
+          
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          echo "✅ Committed and pushed"
+
+      # ══════════════════════════════════════════════════════════════════════
+      # 10. CREATE PULL REQUEST
+      # ══════════════════════════════════════════════════════════════════════
+      - name: Create Pull Request
+        id: pr
+        if: steps.commit.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ steps.resolve-token.outputs.token }}
+          TARGET_REPO: ${{ inputs.target_repo }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          BRANCH: ${{ steps.clone.outputs.branch_name }}
+        run: |
+          # Extract prompt from run summary
+          PROMPT=""
+          if [ -f /tmp/artifact/_run_summary.md ]; then
+            PROMPT=$(grep -i "Prompt" /tmp/artifact/_run_summary.md | head -1 | cut -d'|' -f3 | xargs || echo "")
+          fi
+          if [ -z "$PROMPT" ]; then
+            PROMPT="VIBE-CODE generated"
+          fi
+          
+          # Determine PR title
+          if [ -n "${{ inputs.pr_title }}" ]; then
+            PR_TITLE="${{ inputs.pr_title }}"
+          else
+            PR_TITLE="feat(vibe): $PROMPT"
+          fi
+          # Truncate to 72 chars
+          PR_TITLE=$(echo "$PR_TITLE" | head -c 72)
+          
+          # Build PR body
+          cat > /tmp/pr_body.md << EOF
+          ## 🤖 Generated by VIBE-CODE
+
+          **Task:** $PROMPT
+
+          **Source run:** [${{ inputs.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ inputs.run_id }})
+          **Base branch:** \`$BASE_BRANCH\`
+          **Generated at:** $(date -u +"%Y-%m-%d %H:%M UTC")
+
+          ---
+          _This PR was created automatically by the VIBE-CODE multi-agent platform._
+          EOF
+          
+          # Create PR via GitHub API
+          PR_DATA=$(python3 -c "
+          import json
+          with open('/tmp/pr_body.md') as f:
+              body = f.read()
+          print(json.dumps({
+              'title': '$PR_TITLE',
+              'body': body,
+              'head': '$BRANCH',
+              'base': '$BASE_BRANCH'
+          }))
+          ")
+          
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$TARGET_REPO/pulls" \
+            -d "$PR_DATA")
+          
+          PR_URL=$(echo "$RESPONSE" | python3 -c "
+          import json, sys
+          try:
+              d = json.load(sys.stdin)
+              print(d.get('html_url', 'ERROR: ' + d.get('message', 'unknown')))
+          except Exception as e:
+              print(f'ERROR: {e}')
+          " 2>/dev/null)
+          
+          echo "PR URL: $PR_URL"
+          
+          if [[ "$PR_URL" == ERROR* ]]; then
+            echo "❌ Failed to create PR: $PR_URL"
+            echo ""
+            echo "Response:"
+            echo "$RESPONSE" | python3 -m json.tool 2>/dev/null || echo "$RESPONSE"
+            exit 1
+          fi
+          
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "✅ PR created: $PR_URL"
+
+      # ══════════════════════════════════════════════════════════════════════
+      # 11. SUMMARY
+      # ══════════════════════════════════════════════════════════════════════
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 🎯 VIBE-CODE Create PR — Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Run ID** | \`${{ inputs.run_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Target repo** | \`${{ inputs.target_repo }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Base branch** | \`${{ inputs.base_branch }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **New branch** | \`${{ steps.clone.outputs.branch_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Has changes** | ${{ steps.commit.outputs.has_changes || 'unknown' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **PR URL** | ${{ steps.pr.outputs.pr_url || 'not created' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -n "${{ steps.pr.outputs.pr_url }}" ]; then
+            echo "### ✅ PR Created Successfully!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**[View PR →](${{ steps.pr.outputs.pr_url }})**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ PR was not created" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check the logs above for details." >> $GITHUB_STEP_SUMMARY
+          fi
