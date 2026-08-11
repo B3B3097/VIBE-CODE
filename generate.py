@@ -1,4 +1,11 @@
+"""
+VIBE-CODE v3 — Multi-Agent Local LLM Code Platform
+Full 35+ API integrations, real budget tracking, ZIP output.
+PR creation moved to separate pr.yaml workflow.
+"""
+
 import os, sys, json, re, time, datetime, base64, urllib.request, urllib.error, urllib.parse
+import zipfile
 from enum import Enum
 from typing import Optional
 
@@ -9,26 +16,20 @@ MODEL_SINGLE   = os.getenv("MODEL_SINGLE",   "qwen2.5-coder:7b")
 OLLAMA_HOST    = os.getenv("OLLAMA_HOST",    "http://127.0.0.1:11434")
 
 AGENT_MODE     = os.getenv("AGENT_MODE",    "single")
-TARGET_REPO    = os.getenv("TARGET_REPO",   "")
-GH_TOKEN       = os.getenv("GH_TOKEN",      "")
-AUTO_PR        = os.getenv("AUTO_PR",       "false").lower() == "true"
-AUTO_NOTES     = os.getenv("AUTO_NOTES",    "true").lower()  == "true"
 ENABLE_TOOLS   = os.getenv("ENABLE_TOOLS",  "true").lower()  == "true"
 
 PROMPT         = os.getenv("PROMPT",        "")
 FILE_NAME      = os.getenv("FILE_NAME",     "").strip()
 MODE           = os.getenv("MODE",          "generate")
 
-# If the UI did not pass a filename, try to extract one from prompts such as
-# "Создай файл test.txt" or "create file src/main.py".
 if not FILE_NAME:
     filename_match = re.search(
         r"(?:файл|file)\s+[`\"']?([\w./-]+\.[A-Za-z0-9]{1,12})[`\"']?",
-        PROMPT,
-        flags=re.IGNORECASE,
+        PROMPT, flags=re.IGNORECASE,
     )
     if filename_match:
         FILE_NAME = filename_match.group(1).replace("", "/").lstrip("/")
+
 MAX_TOKENS     = int(os.getenv("MAX_TOKENS", "4096"))
 UNCENSORED     = os.getenv("UNCENSORED", "false").lower() in ("true", "1", "yes", "on")
 UNCENSORED_ADDENDUM = """
@@ -45,16 +46,12 @@ CONCURRENCY    = int(os.getenv("CONCURRENCY", "1"))
 
 # ── API Keys (35+ integrations) ────────────────────────────────────────────────
 API_KEYS = {
-    # Search & Web
     "SERPER_API_KEY":        os.getenv("SERPER_API_KEY", ""),
     "BRAVE_API_KEY":         os.getenv("BRAVE_API_KEY", ""),
     "BING_SEARCH_KEY":       os.getenv("BING_SEARCH_KEY", ""),
-    # Weather
     "OPENWEATHER_API_KEY":   os.getenv("OPENWEATHER_API_KEY", ""),
-    # News
     "NEWS_API_KEY":          os.getenv("NEWS_API_KEY", ""),
     "GNEWS_API_KEY":         os.getenv("GNEWS_API_KEY", ""),
-    # AI / LLM
     "OPENAI_API_KEY":        os.getenv("OPENAI_API_KEY", ""),
     "ANTHROPIC_API_KEY":     os.getenv("ANTHROPIC_API_KEY", ""),
     "GROQ_API_KEY":          os.getenv("GROQ_API_KEY", ""),
@@ -63,24 +60,19 @@ API_KEYS = {
     "REPLICATE_API_KEY":     os.getenv("REPLICATE_API_KEY", ""),
     "COHERE_API_KEY":        os.getenv("COHERE_API_KEY", ""),
     "MISTRAL_API_KEY":       os.getenv("MISTRAL_API_KEY", ""),
-    # Code / Dev
     "JUDGE0_API_KEY":        os.getenv("JUDGE0_API_KEY", ""),
-    # Finance / Data
     "ALPHAVANTAGE_API_KEY":  os.getenv("ALPHAVANTAGE_API_KEY", ""),
     "EXCHANGERATE_API_KEY":  os.getenv("EXCHANGERATE_API_KEY", ""),
-    # Media
     "UNSPLASH_API_KEY":      os.getenv("UNSPLASH_API_KEY", ""),
     "PEXELS_API_KEY":        os.getenv("PEXELS_API_KEY", ""),
     "STABILITY_API_KEY":     os.getenv("STABILITY_API_KEY", ""),
     "ELEVENLABS_API_KEY":    os.getenv("ELEVENLABS_API_KEY", ""),
-    # Communication
     "TELEGRAM_BOT_TOKEN":    os.getenv("TELEGRAM_BOT_TOKEN", ""),
     "DISCORD_WEBHOOK_URL":   os.getenv("DISCORD_WEBHOOK_URL", ""),
     "SLACK_WEBHOOK_URL":     os.getenv("SLACK_WEBHOOK_URL", ""),
     "MAILGUN_API_KEY":       os.getenv("MAILGUN_API_KEY", ""),
     "TWILIO_ACCOUNT_SID":    os.getenv("TWILIO_ACCOUNT_SID", ""),
     "TWILIO_AUTH_TOKEN":     os.getenv("TWILIO_AUTH_TOKEN", ""),
-    # Utility
     "WOLFRAM_API_KEY":       os.getenv("WOLFRAM_API_KEY", ""),
     "IPINFO_TOKEN":          os.getenv("IPINFO_TOKEN", ""),
     "URLSCAN_API_KEY":       os.getenv("URLSCAN_API_KEY", ""),
@@ -107,6 +99,67 @@ if os.path.exists("/tmp/repo_context.b64"):
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/tmp/vibe_output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 PROGRESS_FILE = f"{OUTPUT_DIR}/_progress.json"
+
+# ── Budget Manager (реальный учёт токенов) ─────────────────────────────────────
+class BudgetManager:
+    """
+    Реальный бюджет: если выделил 1M токенов — модель потратит именно до 1M.
+    Каждый запрос к LLM отчитывается в консоль: потрачено / использовано / осталось.
+    max_tokens для следующего запроса динамически рассчитывается из остатка.
+    """
+    def __init__(self, total: int):
+        self.total = max(0, total)
+        self.used = 0
+        self.remaining = self.total
+        self.allocations = {}
+        self.call_log = []
+        self.enabled = self.total > 0
+
+    def allocate(self, phase: str, ratio: float) -> int:
+        if not self.enabled:
+            return MAX_TOKENS
+        amount = int(self.total * ratio)
+        self.allocations[phase] = self.allocations.get(phase, 0) + amount
+        print(f"💰 [Budget] Allocated {amount:>10,} tokens to '{phase}' ({ratio*100:5.1f}%)")
+        return amount
+
+    def spend(self, tokens: int, phase: str, purpose: str = "") -> int:
+        self.used += tokens
+        self.remaining = max(0, self.total - self.used)
+        entry = {
+            "phase": phase, "purpose": purpose, "tokens": tokens,
+            "total_used": self.used, "remaining": self.remaining,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        self.call_log.append(entry)
+        pct_used = (self.used / self.total * 100) if self.total > 0 else 0
+        print(
+            f"💰 [Budget] {phase:>14} | spent {tokens:>7,} | "
+            f"used {self.used:>8,} ({pct_used:5.1f}%) | remaining {self.remaining:>8,} | {purpose}"
+        )
+        return self.remaining
+
+    def get_max_tokens(self, expected_calls_remaining: int = 1) -> int:
+        if not self.enabled:
+            return MAX_TOKENS
+        if self.remaining <= 0:
+            return 0
+        per_call = self.remaining // max(1, expected_calls_remaining)
+        return max(100, min(per_call, MAX_TOKENS))
+
+    def is_exhausted(self) -> bool:
+        return self.enabled and self.remaining <= 0
+
+    def report(self) -> dict:
+        return {
+            "total": self.total, "used": self.used, "remaining": self.remaining,
+            "utilization_pct": round(self.used / self.total * 100, 2) if self.total > 0 else 0,
+            "allocations": self.allocations,
+            "num_calls": len(self.call_log),
+            "calls": self.call_log,
+        }
+
+BUDGET = BudgetManager(TOTAL_BUDGET)
 
 # ── Progress ───────────────────────────────────────────────────────────────────
 def write_progress(status: str, message: str, tokens_used: int = 0,
@@ -148,115 +201,78 @@ def http_post(url: str, payload: dict, headers: dict = None, timeout: int = 15) 
     except Exception as e:
         return {"error": str(e)}
 
-# ── API Toolkit ────────────────────────────────────────────────────────────────
+# ── API Toolkit (полные 35+ интеграций) ────────────────────────────────────────
 class APIToolkit:
-    """
-    35+ internet integrations available to the LLM agents.
-    Keys: free/no-key APIs work always; premium APIs activate when key is set.
-    """
+    """35+ internet integrations available to the LLM agents."""
 
     # ── SEARCH & WEB ──────────────────────────────────────────────────────────
-
     def web_search(self, query: str, num: int = 5) -> dict:
-        """Google Search via Serper.dev (SERPER_API_KEY required) or DuckDuckGo fallback."""
         key = API_KEYS.get("SERPER_API_KEY")
         if key:
-            result = http_post(
-                "https://google.serper.dev/search",
-                {"q": query, "num": num},
-                {"X-API-KEY": key}
-            )
+            result = http_post("https://google.serper.dev/search",
+                               {"q": query, "num": num}, {"X-API-KEY": key})
             items = result.get("organic", [])
             return {"source": "serper", "results": [
                 {"title": r.get("title"), "url": r.get("link"), "snippet": r.get("snippet")}
                 for r in items[:num]
             ]}
-        # DuckDuckGo Instant Answer (free)
         q = urllib.parse.quote(query)
         result = http_get(f"https://api.duckduckgo.com/?q={q}&format=json&no_redirect=1")
         abstract = result.get("AbstractText", "") if isinstance(result, dict) else ""
         related = result.get("RelatedTopics", [])[:3] if isinstance(result, dict) else []
-        return {
-            "source": "duckduckgo",
-            "abstract": abstract,
-            "related": [t.get("Text", "") for t in related if isinstance(t, dict)]
-        }
+        return {"source": "duckduckgo", "abstract": abstract,
+                "related": [t.get("Text", "") for t in related if isinstance(t, dict)]}
 
     def brave_search(self, query: str, num: int = 5) -> dict:
-        """Brave Search API (BRAVE_API_KEY required)."""
         key = API_KEYS.get("BRAVE_API_KEY")
         if not key:
             return {"error": "BRAVE_API_KEY not set"}
         q = urllib.parse.quote(query)
-        return http_get(
-            f"https://api.search.brave.com/res/v1/web/search?q={q}&count={num}",
-            {"Accept": "application/json", "X-Subscription-Token": key}
-        )
+        return http_get(f"https://api.search.brave.com/res/v1/web/search?q={q}&count={num}",
+                        {"Accept": "application/json", "X-Subscription-Token": key})
 
     def wikipedia(self, query: str, sentences: int = 5) -> dict:
-        """Wikipedia summary — free, no key."""
         q = urllib.parse.quote(query.replace(" ", "_"))
         url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{q}"
-        result = http_get(url, {"User-Agent": "vibe-code/2.0"})
+        result = http_get(url, {"User-Agent": "vibe-code/3.0"})
         if isinstance(result, dict) and "extract" in result:
-            return {
-                "title":   result.get("displaytitle", query),
-                "summary": result.get("extract", "")[:1500],
-                "url":     result.get("content_urls", {}).get("desktop", {}).get("page", ""),
-            }
+            return {"title": result.get("displaytitle", query),
+                    "summary": result.get("extract", "")[:1500],
+                    "url": result.get("content_urls", {}).get("desktop", {}).get("page", "")}
         return {"error": "not found", "query": query}
 
     def fetch_url(self, url: str) -> dict:
-        """Fetch raw content from any URL."""
-        content = http_get(url, {"User-Agent": "vibe-code/2.0"}, timeout=15)
+        content = http_get(url, {"User-Agent": "vibe-code/3.0"}, timeout=15)
         if isinstance(content, str):
             return {"url": url, "content": content[:5000]}
         return {"url": url, "data": content}
 
     # ── WEATHER ───────────────────────────────────────────────────────────────
-
     def weather(self, location: str) -> dict:
-        """Weather via wttr.in (free) or OpenWeatherMap (OPENWEATHER_API_KEY)."""
         owm_key = API_KEYS.get("OPENWEATHER_API_KEY")
         if owm_key:
             q = urllib.parse.quote(location)
-            result = http_get(
-                f"https://api.openweathermap.org/data/2.5/weather?q={q}&appid={owm_key}&units=metric"
-            )
+            result = http_get(f"https://api.openweathermap.org/data/2.5/weather?q={q}&appid={owm_key}&units=metric")
             if isinstance(result, dict) and "main" in result:
-                return {
-                    "location":    result.get("name"),
-                    "temp_c":      result["main"]["temp"],
-                    "feels_like":  result["main"]["feels_like"],
-                    "humidity":    result["main"]["humidity"],
-                    "description": result["weather"][0]["description"],
-                    "wind_ms":     result["wind"]["speed"],
-                }
-        # wttr.in free fallback
+                return {"location": result.get("name"), "temp_c": result["main"]["temp"],
+                        "feels_like": result["main"]["feels_like"], "humidity": result["main"]["humidity"],
+                        "description": result["weather"][0]["description"], "wind_ms": result["wind"]["speed"]}
         q = urllib.parse.quote(location)
         return http_get(f"https://wttr.in/{q}?format=j1")
 
     def weather_forecast(self, lat: float, lon: float, days: int = 3) -> dict:
-        """7-day forecast via Open-Meteo (free, no key)."""
-        url = (
-            f"https://api.open-meteo.com/v1/forecast"
-            f"?latitude={lat}&longitude={lon}"
-            f"&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode"
-            f"&forecast_days={days}&timezone=auto"
-        )
+        url = (f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+               f"&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode"
+               f"&forecast_days={days}&timezone=auto")
         return http_get(url)
 
     # ── NEWS ──────────────────────────────────────────────────────────────────
-
     def news(self, query: str, lang: str = "en", num: int = 5) -> dict:
-        """Top news via NewsAPI (NEWS_API_KEY) or GNews (GNEWS_API_KEY)."""
         news_key = API_KEYS.get("NEWS_API_KEY")
         if news_key:
             q = urllib.parse.quote(query)
-            result = http_get(
-                f"https://newsapi.org/v2/everything?q={q}&language={lang}&pageSize={num}",
-                {"X-Api-Key": news_key}
-            )
+            result = http_get(f"https://newsapi.org/v2/everything?q={q}&language={lang}&pageSize={num}",
+                              {"X-Api-Key": news_key})
             articles = result.get("articles", []) if isinstance(result, dict) else []
             return {"source": "newsapi", "articles": [
                 {"title": a["title"], "url": a["url"], "description": a.get("description", "")}
@@ -265,9 +281,7 @@ class APIToolkit:
         gnews_key = API_KEYS.get("GNEWS_API_KEY")
         if gnews_key:
             q = urllib.parse.quote(query)
-            result = http_get(
-                f"https://gnews.io/api/v4/search?q={q}&lang={lang}&max={num}&token={gnews_key}"
-            )
+            result = http_get(f"https://gnews.io/api/v4/search?q={q}&lang={lang}&max={num}&token={gnews_key}")
             articles = result.get("articles", []) if isinstance(result, dict) else []
             return {"source": "gnews", "articles": [
                 {"title": a["title"], "url": a["url"], "description": a.get("description", "")}
@@ -276,205 +290,137 @@ class APIToolkit:
         return {"error": "Set NEWS_API_KEY or GNEWS_API_KEY"}
 
     # ── AI / LLM SERVICES ─────────────────────────────────────────────────────
-
     def openai_chat(self, messages: list, model: str = "gpt-4o-mini") -> dict:
-        """OpenAI ChatCompletion (OPENAI_API_KEY required)."""
         key = API_KEYS.get("OPENAI_API_KEY")
         if not key:
             return {"error": "OPENAI_API_KEY not set"}
-        result = http_post(
-            "https://api.openai.com/v1/chat/completions",
-            {"model": model, "messages": messages, "max_tokens": 1024},
-            {"Authorization": f"Bearer {key}"}
-        )
-        return {"reply": result.get("choices", [{}])[0].get("message", {}).get("content", ""),
-                "model": model}
+        result = http_post("https://api.openai.com/v1/chat/completions",
+                           {"model": model, "messages": messages, "max_tokens": 1024},
+                           {"Authorization": f"Bearer {key}"})
+        return {"reply": result.get("choices", [{}])[0].get("message", {}).get("content", ""), "model": model}
 
     def anthropic_chat(self, prompt: str, model: str = "claude-3-haiku-20240307") -> dict:
-        """Anthropic Claude (ANTHROPIC_API_KEY required)."""
         key = API_KEYS.get("ANTHROPIC_API_KEY")
         if not key:
             return {"error": "ANTHROPIC_API_KEY not set"}
-        result = http_post(
-            "https://api.anthropic.com/v1/messages",
-            {"model": model, "max_tokens": 1024,
-             "messages": [{"role": "user", "content": prompt}]},
-            {"x-api-key": key, "anthropic-version": "2023-06-01"}
-        )
+        result = http_post("https://api.anthropic.com/v1/messages",
+                           {"model": model, "max_tokens": 1024,
+                            "messages": [{"role": "user", "content": prompt}]},
+                           {"x-api-key": key, "anthropic-version": "2023-06-01"})
         return {"reply": result.get("content", [{}])[0].get("text", ""), "model": model}
 
     def groq_chat(self, messages: list, model: str = "llama3-8b-8192") -> dict:
-        """Groq fast inference (GROQ_API_KEY required, free tier available)."""
         key = API_KEYS.get("GROQ_API_KEY")
         if not key:
             return {"error": "GROQ_API_KEY not set"}
-        result = http_post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            {"model": model, "messages": messages, "max_tokens": 1024},
-            {"Authorization": f"Bearer {key}"}
-        )
-        return {"reply": result.get("choices", [{}])[0].get("message", {}).get("content", ""),
-                "model": model}
+        result = http_post("https://api.groq.com/openai/v1/chat/completions",
+                           {"model": model, "messages": messages, "max_tokens": 1024},
+                           {"Authorization": f"Bearer {key}"})
+        return {"reply": result.get("choices", [{}])[0].get("message", {}).get("content", ""), "model": model}
 
     def together_ai(self, prompt: str, model: str = "meta-llama/Llama-3-8b-chat-hf") -> dict:
-        """Together AI (TOGETHER_API_KEY required)."""
         key = API_KEYS.get("TOGETHER_API_KEY")
         if not key:
             return {"error": "TOGETHER_API_KEY not set"}
-        result = http_post(
-            "https://api.together.xyz/v1/chat/completions",
-            {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": 512},
-            {"Authorization": f"Bearer {key}"}
-        )
-        return {"reply": result.get("choices", [{}])[0].get("message", {}).get("content", ""),
-                "model": model}
+        result = http_post("https://api.together.xyz/v1/chat/completions",
+                           {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": 512},
+                           {"Authorization": f"Bearer {key}"})
+        return {"reply": result.get("choices", [{}])[0].get("message", {}).get("content", ""), "model": model}
 
     def huggingface_inference(self, model_id: str, inputs: str) -> dict:
-        """HuggingFace Inference API (HF_API_KEY for private/gated models)."""
         key = API_KEYS.get("HF_API_KEY")
         headers = {"Authorization": f"Bearer {key}"} if key else {}
-        return http_post(
-            f"https://api-inference.huggingface.co/models/{model_id}",
-            {"inputs": inputs},
-            headers
-        )
+        return http_post(f"https://api-inference.huggingface.co/models/{model_id}",
+                         {"inputs": inputs}, headers)
 
     def cohere_generate(self, prompt: str) -> dict:
-        """Cohere text generation (COHERE_API_KEY required)."""
         key = API_KEYS.get("COHERE_API_KEY")
         if not key:
             return {"error": "COHERE_API_KEY not set"}
-        result = http_post(
-            "https://api.cohere.ai/v1/generate",
-            {"model": "command", "prompt": prompt, "max_tokens": 512},
-            {"Authorization": f"Bearer {key}"}
-        )
+        result = http_post("https://api.cohere.ai/v1/generate",
+                           {"model": "command", "prompt": prompt, "max_tokens": 512},
+                           {"Authorization": f"Bearer {key}"})
         return {"reply": result.get("generations", [{}])[0].get("text", "")}
 
     # ── CODE EXECUTION ────────────────────────────────────────────────────────
-
     def execute_code(self, code: str, language: str = "python") -> dict:
-        """Run code via Piston API (free, no key). Supports 50+ languages."""
-        lang_map = {
-            "python": ("python", "3.10.0"),
-            "javascript": ("javascript", "18.15.0"),
-            "typescript": ("typescript", "5.0.3"),
-            "go": ("go", "1.16.2"),
-            "rust": ("rust", "1.50.0"),
-            "bash": ("bash", "5.2.0"),
-            "java": ("java", "15.0.2"),
-            "cpp": ("c++", "10.2.0"),
-        }
+        lang_map = {"python": ("python", "3.10.0"), "javascript": ("javascript", "18.15.0"),
+                    "typescript": ("typescript", "5.0.3"), "go": ("go", "1.16.2"),
+                    "rust": ("rust", "1.50.0"), "bash": ("bash", "5.2.0"),
+                    "java": ("java", "15.0.2"), "cpp": ("c++", "10.2.0")}
         runtime, version = lang_map.get(language, ("python", "3.10.0"))
-        result = http_post(
-            "https://emkc.org/api/v2/piston/execute",
-            {"language": runtime, "version": version,
-             "files": [{"content": code}]},
-            timeout=20
-        )
+        result = http_post("https://emkc.org/api/v2/piston/execute",
+                           {"language": runtime, "version": version, "files": [{"content": code}]},
+                           timeout=20)
         run = result.get("run", {})
-        return {
-            "stdout":   run.get("stdout", ""),
-            "stderr":   run.get("stderr", ""),
-            "code":     run.get("code", 0),
-            "language": language,
-        }
+        return {"stdout": run.get("stdout", ""), "stderr": run.get("stderr", ""),
+                "code": run.get("code", 0), "language": language}
 
     def judge0_run(self, code: str, language_id: int = 71) -> dict:
-        """Judge0 code execution (JUDGE0_API_KEY for hosted, or free RapidAPI tier)."""
         key = API_KEYS.get("JUDGE0_API_KEY")
         headers = {"X-RapidAPI-Key": key, "X-RapidAPI-Host": "judge0-ce.p.rapidapi.com"} if key else {}
         base = "https://judge0-ce.p.rapidapi.com" if key else "https://ce.judge0.com"
         submit = http_post(f"{base}/submissions?wait=true",
                            {"source_code": base64.b64encode(code.encode()).decode(),
-                            "language_id": language_id, "stdin": ""},
-                           headers)
-        return {
-            "stdout":   base64.b64decode(submit.get("stdout") or "").decode(),
-            "stderr":   base64.b64decode(submit.get("stderr") or "").decode(),
-            "status":   submit.get("status", {}).get("description", ""),
-        }
+                            "language_id": language_id, "stdin": ""}, headers)
+        return {"stdout": base64.b64decode(submit.get("stdout") or "").decode(),
+                "stderr": base64.b64decode(submit.get("stderr") or "").decode(),
+                "status": submit.get("status", {}).get("description", "")}
 
     # ── FINANCE & DATA ────────────────────────────────────────────────────────
-
     def crypto_price(self, coin_id: str = "bitcoin") -> dict:
-        """Crypto price via CoinGecko (free, no key, rate limited)."""
-        return http_get(
-            f"https://api.coingecko.com/api/v3/simple/price"
-            f"?ids={coin_id}&vs_currencies=usd,eur,rub&include_24hr_change=true"
-        )
+        return http_get(f"https://api.coingecko.com/api/v3/simple/price"
+                        f"?ids={coin_id}&vs_currencies=usd,eur,rub&include_24hr_change=true")
 
     def stock_price(self, symbol: str) -> dict:
-        """Stock quote via Alpha Vantage (ALPHAVANTAGE_API_KEY required, free tier available)."""
         key = API_KEYS.get("ALPHAVANTAGE_API_KEY")
         if not key:
             return {"error": "ALPHAVANTAGE_API_KEY not set — get free at alphavantage.co"}
-        return http_get(
-            f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE"
-            f"&symbol={symbol}&apikey={key}"
-        )
+        return http_get(f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={key}")
 
     def exchange_rates(self, base: str = "USD") -> dict:
-        """Currency exchange rates (free, no key via exchangerate-api)."""
         key = API_KEYS.get("EXCHANGERATE_API_KEY")
         if key:
             return http_get(f"https://v6.exchangerate-api.com/v6/{key}/latest/{base}")
         return http_get(f"https://open.er-api.com/v6/latest/{base}")
 
     def countries(self, name: str) -> dict:
-        """Country info via REST Countries (free, no key)."""
         q = urllib.parse.quote(name)
         return http_get(f"https://restcountries.com/v3.1/name/{q}")
 
     # ── IMAGES & MEDIA ────────────────────────────────────────────────────────
-
     def unsplash_search(self, query: str, num: int = 5) -> dict:
-        """Search photos via Unsplash (UNSPLASH_API_KEY required, free tier)."""
         key = API_KEYS.get("UNSPLASH_API_KEY")
         if not key:
             return {"error": "UNSPLASH_API_KEY not set — free at unsplash.com/developers"}
         q = urllib.parse.quote(query)
-        result = http_get(
-            f"https://api.unsplash.com/search/photos?query={q}&per_page={num}",
-            {"Authorization": f"Client-ID {key}"}
-        )
+        result = http_get(f"https://api.unsplash.com/search/photos?query={q}&per_page={num}",
+                          {"Authorization": f"Client-ID {key}"})
         photos = result.get("results", []) if isinstance(result, dict) else []
-        return {"photos": [
-            {"url": p["urls"]["regular"], "thumb": p["urls"]["thumb"],
-             "author": p.get("user", {}).get("name", ""), "alt": p.get("alt_description", "")}
-            for p in photos
-        ]}
+        return {"photos": [{"url": p["urls"]["regular"], "thumb": p["urls"]["thumb"],
+                             "author": p.get("user", {}).get("name", ""), "alt": p.get("alt_description", "")}
+                           for p in photos]}
 
     def pexels_search(self, query: str, num: int = 5) -> dict:
-        """Search photos via Pexels (PEXELS_API_KEY required, free)."""
         key = API_KEYS.get("PEXELS_API_KEY")
         if not key:
             return {"error": "PEXELS_API_KEY not set — free at pexels.com/api"}
         q = urllib.parse.quote(query)
-        result = http_get(
-            f"https://api.pexels.com/v1/search?query={q}&per_page={num}",
-            {"Authorization": key}
-        )
+        result = http_get(f"https://api.pexels.com/v1/search?query={q}&per_page={num}",
+                          {"Authorization": key})
         photos = result.get("photos", []) if isinstance(result, dict) else []
-        return {"photos": [
-            {"url": p["src"]["large"], "thumb": p["src"]["small"],
-             "photographer": p.get("photographer", "")}
-            for p in photos
-        ]}
+        return {"photos": [{"url": p["src"]["large"], "thumb": p["src"]["small"],
+                             "photographer": p.get("photographer", "")} for p in photos]}
 
     def elevenlabs_tts(self, text: str, voice_id: str = "21m00Tcm4TlvDq8ikWAM") -> dict:
-        """Text-to-speech via ElevenLabs (ELEVENLABS_API_KEY required)."""
         key = API_KEYS.get("ELEVENLABS_API_KEY")
         if not key:
             return {"error": "ELEVENLABS_API_KEY not set"}
         body = json.dumps({"text": text, "model_id": "eleven_monolingual_v1",
                            "voice_settings": {"stability": 0.5, "similarity_boost": 0.5}}).encode()
-        req = urllib.request.Request(
-            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
-            data=body,
-            headers={"xi-api-key": key, "Content-Type": "application/json"},
-            method="POST"
-        )
+        req = urllib.request.Request(f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                                     data=body, headers={"xi-api-key": key, "Content-Type": "application/json"},
+                                     method="POST")
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 audio = r.read()
@@ -486,42 +432,32 @@ class APIToolkit:
             return {"error": str(e)}
 
     # ── COMMUNICATION ─────────────────────────────────────────────────────────
-
     def telegram_send(self, chat_id: str, text: str) -> dict:
-        """Send Telegram message (TELEGRAM_BOT_TOKEN required)."""
         token = API_KEYS.get("TELEGRAM_BOT_TOKEN")
         if not token:
             return {"error": "TELEGRAM_BOT_TOKEN not set"}
-        return http_post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
-        )
+        return http_post(f"https://api.telegram.org/bot{token}/sendMessage",
+                         {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
 
     def discord_send(self, message: str, username: str = "VIBE-CODE") -> dict:
-        """Send Discord webhook message (DISCORD_WEBHOOK_URL required)."""
         url = API_KEYS.get("DISCORD_WEBHOOK_URL")
         if not url:
             return {"error": "DISCORD_WEBHOOK_URL not set"}
         return http_post(url, {"content": message, "username": username})
 
     def slack_send(self, message: str) -> dict:
-        """Send Slack webhook message (SLACK_WEBHOOK_URL required)."""
         url = API_KEYS.get("SLACK_WEBHOOK_URL")
         if not url:
             return {"error": "SLACK_WEBHOOK_URL not set"}
         return http_post(url, {"text": message})
 
     # ── UTILITY ───────────────────────────────────────────────────────────────
-
     def wolfram_query(self, query: str) -> dict:
-        """Wolfram Alpha computation (WOLFRAM_API_KEY required, free developer tier)."""
         key = API_KEYS.get("WOLFRAM_API_KEY")
         if not key:
             return {"error": "WOLFRAM_API_KEY not set — free at developer.wolframalpha.com"}
         q = urllib.parse.quote(query)
-        result = http_get(
-            f"https://api.wolframalpha.com/v2/query?input={q}&appid={key}&output=json"
-        )
+        result = http_get(f"https://api.wolframalpha.com/v2/query?input={q}&appid={key}&output=json")
         if isinstance(result, dict):
             pods = result.get("queryresult", {}).get("pods", [])
             answers = []
@@ -535,54 +471,40 @@ class APIToolkit:
         return {"error": "parse failed"}
 
     def translate(self, text: str, target_lang: str = "en", source_lang: str = "auto") -> dict:
-        """Translation via DeepL (DEEPL_API_KEY) or MyMemory (free fallback)."""
         deepl_key = API_KEYS.get("DEEPL_API_KEY")
         if deepl_key:
-            result = http_post(
-                "https://api-free.deepl.com/v2/translate",
-                {"text": [text], "target_lang": target_lang.upper()},
-                {"Authorization": f"DeepL-Auth-Key {deepl_key}"}
-            )
+            result = http_post("https://api-free.deepl.com/v2/translate",
+                               {"text": [text], "target_lang": target_lang.upper()},
+                               {"Authorization": f"DeepL-Auth-Key {deepl_key}"})
             translations = result.get("translations", [{}])
             return {"translated": translations[0].get("text", ""), "via": "deepl"}
-        # MyMemory free fallback (1000 words/day)
         q = urllib.parse.quote(f"{text}|{source_lang}|{target_lang}")
         result = http_get(f"https://api.mymemory.translated.net/get?q={q}")
         if isinstance(result, dict):
-            return {
-                "translated": result.get("responseData", {}).get("translatedText", ""),
-                "via": "mymemory"
-            }
+            return {"translated": result.get("responseData", {}).get("translatedText", ""), "via": "mymemory"}
         return {"error": "translation failed"}
 
     def ip_info(self, ip: str = "") -> dict:
-        """IP geolocation (IPINFO_TOKEN for higher limits, free without)."""
         token = API_KEYS.get("IPINFO_TOKEN")
         url = f"https://ipinfo.io/{ip}/json"
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         return http_get(url, headers)
 
     def geocode(self, address: str) -> dict:
-        """Address to coordinates via Nominatim (OpenStreetMap, free)."""
         q = urllib.parse.quote(address)
-        result = http_get(
-            f"https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1",
-            {"User-Agent": "vibe-code/2.0"}
-        )
+        result = http_get(f"https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1",
+                          {"User-Agent": "vibe-code/3.0"})
         if isinstance(result, list) and result:
             r = result[0]
-            return {"lat": float(r["lat"]), "lon": float(r["lon"]),
-                    "display_name": r.get("display_name", "")}
+            return {"lat": float(r["lat"]), "lon": float(r["lon"]), "display_name": r.get("display_name", "")}
         return {"error": "not found"}
 
     def qr_code(self, data: str, size: int = 200) -> dict:
-        """Generate QR code URL (free, no key)."""
         q = urllib.parse.quote(data)
         url = f"https://api.qrserver.com/v1/create-qr-code/?size={size}x{size}&data={q}"
         return {"qr_url": url, "data": data}
 
     def dictionary(self, word: str, lang: str = "en") -> dict:
-        """Word definition via Free Dictionary API (free, no key)."""
         result = http_get(f"https://api.dictionaryapi.dev/api/v2/entries/{lang}/{word}")
         if isinstance(result, list) and result:
             entry = result[0]
@@ -590,66 +512,33 @@ class APIToolkit:
             defs = []
             for m in meanings[:2]:
                 for d in m.get("definitions", [])[:2]:
-                    defs.append({
-                        "part": m.get("partOfSpeech"),
-                        "definition": d.get("definition"),
-                        "example": d.get("example", "")
-                    })
+                    defs.append({"part": m.get("partOfSpeech"), "definition": d.get("definition"),
+                                 "example": d.get("example", "")})
             return {"word": word, "phonetic": entry.get("phonetic", ""), "definitions": defs}
         return {"error": f"'{word}' not found"}
 
     def world_time(self, timezone: str = "UTC") -> dict:
-        """Current time in any timezone (free, no key)."""
         tz = urllib.parse.quote(timezone)
         return http_get(f"https://worldtimeapi.org/api/timezone/{tz}")
 
     def uuid_generate(self) -> dict:
-        """Generate UUID (free, no key)."""
         result = http_get("https://www.uuidtools.com/api/generate/v4")
         if isinstance(result, list):
             return {"uuid": result[0]}
         return {"error": "failed"}
 
     def random_user(self, nationality: str = "") -> dict:
-        """Random user data for testing (free, no key)."""
         url = "https://randomuser.me/api/"
         if nationality:
             url += f"?nat={nationality}"
         result = http_get(url)
         if isinstance(result, dict) and "results" in result:
             u = result["results"][0]
-            return {
-                "name":    f"{u['name']['first']} {u['name']['last']}",
-                "email":   u["email"],
-                "country": u["location"]["country"],
-                "phone":   u["phone"],
-            }
+            return {"name": f"{u['name']['first']} {u['name']['last']}", "email": u["email"],
+                    "country": u["location"]["country"], "phone": u["phone"]}
         return {"error": "failed"}
 
-    def github_repo(self, repo: str) -> dict:
-        """GitHub repo info (public repos free, GITHUB_TOKEN for private/higher rate limit)."""
-        token = API_KEYS.get("GITHUB_TOKEN") or GH_TOKEN
-        headers = {"Authorization": f"Bearer {token}"} if token else {}
-        headers["Accept"] = "application/vnd.github.v3+json"
-        return http_get(f"https://api.github.com/repos/{repo}", headers)
-
-    def github_search_code(self, query: str, language: str = "") -> dict:
-        """Search GitHub code (GITHUB_TOKEN strongly recommended to avoid rate limits)."""
-        token = API_KEYS.get("GITHUB_TOKEN") or GH_TOKEN
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github.v3+json"
-        } if token else {}
-        q = urllib.parse.quote(query + (f" language:{language}" if language else ""))
-        result = http_get(f"https://api.github.com/search/code?q={q}&per_page=5", headers)
-        items = result.get("items", []) if isinstance(result, dict) else []
-        return {"results": [
-            {"path": i["path"], "repo": i["repository"]["full_name"], "url": i["html_url"]}
-            for i in items[:5]
-        ]}
-
     def package_info(self, package: str, ecosystem: str = "pypi") -> dict:
-        """Package metadata from PyPI or NPM (free, no key)."""
         if ecosystem == "pypi":
             return http_get(f"https://pypi.org/pypi/{package}/json")
         elif ecosystem == "npm":
@@ -657,37 +546,27 @@ class APIToolkit:
         return {"error": f"Unknown ecosystem: {ecosystem}"}
 
     def notion_query(self, database_id: str) -> dict:
-        """Query Notion database (NOTION_API_KEY required)."""
         key = API_KEYS.get("NOTION_API_KEY")
         if not key:
             return {"error": "NOTION_API_KEY not set"}
-        return http_post(
-            f"https://api.notion.com/v1/databases/{database_id}/query",
-            {},
-            {"Authorization": f"Bearer {key}", "Notion-Version": "2022-06-28"}
-        )
+        return http_post(f"https://api.notion.com/v1/databases/{database_id}/query", {},
+                         {"Authorization": f"Bearer {key}", "Notion-Version": "2022-06-28"})
 
     def airtable_list(self, base_id: str, table: str) -> dict:
-        """List Airtable records (AIRTABLE_API_KEY required)."""
         key = API_KEYS.get("AIRTABLE_API_KEY")
         if not key:
             return {"error": "AIRTABLE_API_KEY not set"}
-        return http_get(
-            f"https://api.airtable.com/v0/{base_id}/{table}",
-            {"Authorization": f"Bearer {key}"}
-        )
+        return http_get(f"https://api.airtable.com/v0/{base_id}/{table}",
+                        {"Authorization": f"Bearer {key}"})
 
     def stability_generate(self, prompt: str, steps: int = 20) -> dict:
-        """AI image generation via Stability AI (STABILITY_API_KEY required)."""
         key = API_KEYS.get("STABILITY_API_KEY")
         if not key:
             return {"error": "STABILITY_API_KEY not set"}
-        result = http_post(
-            "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",
-            {"text_prompts": [{"text": prompt, "weight": 1}],
-             "samples": 1, "steps": steps, "width": 1024, "height": 1024},
-            {"Authorization": f"Bearer {key}", "Accept": "application/json"}
-        )
+        result = http_post("https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",
+                           {"text_prompts": [{"text": prompt, "weight": 1}],
+                            "samples": 1, "steps": steps, "width": 1024, "height": 1024},
+                           {"Authorization": f"Bearer {key}", "Accept": "application/json"})
         images = result.get("artifacts", [])
         if images:
             img_data = base64.b64decode(images[0]["base64"])
@@ -698,19 +577,13 @@ class APIToolkit:
         return {"error": result.get("message", "generation failed")}
 
     def replicate_run(self, model: str, input_data: dict) -> dict:
-        """Run any Replicate model (REPLICATE_API_KEY required)."""
         key = API_KEYS.get("REPLICATE_API_KEY")
         if not key:
             return {"error": "REPLICATE_API_KEY not set"}
-        result = http_post(
-            f"https://api.replicate.com/v1/models/{model}/predictions",
-            {"input": input_data},
-            {"Authorization": f"Token {key}"}
-        )
-        return result
+        return http_post(f"https://api.replicate.com/v1/models/{model}/predictions",
+                         {"input": input_data}, {"Authorization": f"Token {key}"})
 
     def available_tools(self) -> list:
-        """Return all tool definitions with active status."""
         tools = [
             {"name": "web_search", "description": "Google/DuckDuckGo web search", "free": True, "key": None},
             {"name": "brave_search", "description": "Brave Search API", "free": False, "key": "BRAVE_API_KEY"},
@@ -746,8 +619,6 @@ class APIToolkit:
             {"name": "world_time", "description": "Current time anywhere", "free": True, "key": None},
             {"name": "uuid_generate", "description": "Generate UUID", "free": True, "key": None},
             {"name": "random_user", "description": "Random user data", "free": True, "key": None},
-            {"name": "github_repo", "description": "GitHub repository info", "free": True, "key": None},
-            {"name": "github_search_code", "description": "Search GitHub code", "free": True, "key": None},
             {"name": "package_info", "description": "PyPI or NPM package info", "free": True, "key": None},
             {"name": "notion_query", "description": "Query Notion database", "free": False, "key": "NOTION_API_KEY"},
             {"name": "airtable_list", "description": "List Airtable records", "free": False, "key": "AIRTABLE_API_KEY"},
@@ -761,35 +632,47 @@ class APIToolkit:
 
 # ── Tool Router ────────────────────────────────────────────────────────────────
 class ToolRouter:
-    """
-    Decides which APIToolkit tools to call based on prompt analysis,
-    calls them, and returns enriched context for the agents.
-    """
-
     TOOL_SCHEMA = """
 Available tools (call by name with args):
 - web_search(query)           — Google/DuckDuckGo search
+- brave_search(query)         — Brave search
 - wikipedia(query)            — Wikipedia article summary
 - weather(location)           — Current weather
 - weather_forecast(lat, lon)  — Multi-day forecast
 - news(query)                 — Latest news headlines
-- crypto_price(coin_id)       — Crypto price (bitcoin, ethereum...)
-- stock_price(symbol)         — Stock quote (AAPL, TSLA...)
-- exchange_rates(base)        — Currency rates (USD, EUR...)
+- openai_chat(messages)       — OpenAI GPT chat
+- anthropic_chat(prompt)      — Claude chat
+- groq_chat(messages)         — Groq fast LLM
+- together_ai(prompt)         — Together AI
+- huggingface_inference(model_id, inputs)
+- cohere_generate(prompt)
+- execute_code(code, language)
+- judge0_run(code)
+- crypto_price(coin_id)       — Crypto price
+- stock_price(symbol)         — Stock quote
+- exchange_rates(base)        — Currency rates
 - countries(name)             — Country information
-- translate(text, target_lang)— Translate text
-- wolfram_query(query)        — Math/science computation
-- execute_code(code, language)— Run code (python/js/go/rust...)
-- github_repo(owner/repo)     — GitHub repository info
-- github_search_code(query)   — Search GitHub code
-- package_info(pkg, ecosystem)— PyPI or NPM package info
-- ip_info(ip)                 — IP geolocation
-- geocode(address)            — Address to coordinates
-- dictionary(word)            — Word definition
-- world_time(timezone)        — Current time anywhere
-- qr_code(data)               — Generate QR code URL
-- random_user()               — Random test user data
-- fetch_url(url)              — Fetch any URL content
+- unsplash_search(query)      — Photo search Unsplash
+- pexels_search(query)        — Photo search Pexels
+- elevenlabs_tts(text)        — Text-to-speech
+- telegram_send(chat_id, text)
+- discord_send(message)
+- slack_send(message)
+- wolfram_query(query)
+- translate(text, target_lang)
+- ip_info(ip)
+- geocode(address)
+- qr_code(data)
+- dictionary(word)
+- world_time(timezone)
+- uuid_generate()
+- random_user()
+- package_info(pkg, ecosystem)
+- notion_query(database_id)
+- airtable_list(base_id, table)
+- stability_generate(prompt)
+- replicate_run(model, input_data)
+- fetch_url(url)
 
 Respond with JSON:
 {
@@ -805,27 +688,21 @@ Return empty array if no tools needed.
         self.toolkit = APIToolkit()
 
     def analyze_and_fetch(self, task: str, budget: int = 1024) -> str:
-        """Use LLM to decide which tools to call, then call them and return context."""
         if not ENABLE_TOOLS:
             return ""
-
         active_tools = [t["name"] for t in self.toolkit.available_tools() if t["active"]]
         if not active_tools:
             return ""
-
         write_progress("running", "🔌 ToolRouter analyzing task...", agent="tools")
-
         messages = [
             {"role": "system", "content": self.TOOL_SCHEMA},
-            {"role": "user",   "content":
+            {"role": "user", "content":
              f"Task: {task}\n\nActive tools: {', '.join(active_tools)}\n\n"
              "Which tools (if any) would provide useful context for this task?"}
         ]
-
         try:
-            # Use MODEL_SINGLE in single-agent mode — MODEL_PLANNER may not be loaded
             model = MODEL_SINGLE if AGENT_MODE == "single" else MODEL_PLANNER
-            raw, _ = call_model(messages, model, budget)
+            raw, tokens = call_model(messages, model, budget, phase="tools", purpose="analyze task")
             match = re.search(r'\{[\s\S]*\}', raw)
             if not match:
                 return ""
@@ -833,39 +710,25 @@ Return empty array if no tools needed.
             calls = plan.get("tools_needed", [])
         except Exception:
             return ""
-
         if not calls:
             return ""
-
-        write_progress("running", f"🌐 Fetching context from {len(calls)} API(s)...",
-                       agent="tools")
-
+        write_progress("running", f"🌐 Fetching context from {len(calls)} API(s)...", agent="tools")
         results = []
-        for call in calls[:6]:  # max 6 API calls per run
+        for call in calls[:6]:
             tool_name = call.get("tool", "")
-            args      = call.get("args", {})
-            reason    = call.get("reason", "")
-
+            args = call.get("args", {})
+            reason = call.get("reason", "")
             method = getattr(self.toolkit, tool_name, None)
             if method is None:
                 continue
-
             try:
                 result = method(**args)
-                results.append({
-                    "tool":   tool_name,
-                    "args":   args,
-                    "reason": reason,
-                    "result": result,
-                })
+                results.append({"tool": tool_name, "args": args, "reason": reason, "result": result})
                 write_progress("running", f"  ✅ {tool_name}: OK", agent="tools")
             except Exception as e:
                 write_progress("running", f"  ⚠️ {tool_name}: {e}", agent="tools")
-
         if not results:
             return ""
-
-        # Format context for injection into agent prompts
         parts = ["## 🌐 Internet Context (fetched by ToolRouter)\n"]
         for r in results:
             parts.append(f"### {r['tool']}({json.dumps(r['args'])})")
@@ -877,7 +740,6 @@ Return empty array if no tools needed.
                 text = json.dumps(data, ensure_ascii=False, indent=2)
                 parts.append(f"```json\n{text[:2000]}\n```")
             parts.append("")
-
         context = "\n".join(parts)
         write_progress("running",
                        f"✅ ToolRouter: fetched {len(results)} sources ({len(context)} chars)",
@@ -896,196 +758,46 @@ def ollama_ready(timeout=120):
     return False
 
 def estimate_tokens(text: str) -> int:
-    """Heuristic token estimate: ~4 chars latin = 1 token, ~2 chars cyrillic/CJK = 1 token."""
     if not text:
         return 0
     latin = sum(1 for c in text if ord(c) < 0x0400)
     other = len(text) - latin
     return int(latin / 4 + other / 2)
 
-def call_model(messages: list, model: str = None, max_tokens: int = None) -> tuple[str, int]:
-    """Call Ollama /api/chat. Returns (text, tokens_used)."""
+def call_model(messages: list, model: str = None, max_tokens: int = None,
+               phase: str = "general", purpose: str = "") -> tuple[str, int]:
+    """Call Ollama /api/chat с учётом бюджета."""
     if model is None:
         model = MODEL_SINGLE
+    if max_tokens is None:
+        max_tokens = BUDGET.get_max_tokens(expected_calls_remaining=3)
+    if BUDGET.is_exhausted():
+        print(f"💰 [Budget] EXHAUSTED — skipping {phase}/{purpose}")
+        return "", 0
     payload = json.dumps({
-        "model":   model,
-        "messages": messages,
-        "stream":  False,
-        "options": {
-            "num_predict": max_tokens or MAX_TOKENS,
-            "temperature": 0.3,
-            "top_p": 0.9,
-        }
+        "model": model, "messages": messages, "stream": False,
+        "options": {"num_predict": max_tokens, "temperature": 0.3, "top_p": 0.9}
     }).encode()
-    req = urllib.request.Request(
-        f"{OLLAMA_HOST}/api/chat",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST"
-    )
+    req = urllib.request.Request(f"{OLLAMA_HOST}/api/chat", data=payload,
+                                 headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=600) as r:
         resp = json.loads(r.read())
     text = resp.get("message", {}).get("content", "")
     tokens = resp.get("eval_count", 0) + resp.get("prompt_eval_count", 0)
     if not tokens:
         tokens = estimate_tokens(text) + sum(estimate_tokens(m.get("content", "")) for m in messages)
+    BUDGET.spend(tokens, phase, purpose)
     return text, tokens
 
 # ── Agent State ────────────────────────────────────────────────────────────────
 class AgentState(Enum):
-    IDLE      = "idle"
-    FETCHING  = "fetching"
-    PLANNING  = "planning"
-    CODING    = "coding"
+    IDLE = "idle"
+    FETCHING = "fetching"
+    PLANNING = "planning"
+    CODING = "coding"
     REVIEWING = "reviewing"
-    COMMITTING= "committing"
     RELEASING = "releasing"
-    DONE      = "done"
-
-# ── Git Integration ────────────────────────────────────────────────────────────
-class GitIntegration:
-    """GitHub API wrapper — reads repo context, creates commits and PRs."""
-
-    def __init__(self, repo: str, token: str):
-        self.repo  = repo
-        self.token = token
-        self.base  = "https://api.github.com"
-
-    def _req(self, path: str, method: str = "GET", data: dict = None):
-        url = f"{self.base}{path}"
-        body = json.dumps(data).encode() if data else None
-        req = urllib.request.Request(
-            url, data=body,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Accept":        "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Content-Type":  "application/json",
-                "User-Agent":    "vibe-code/2.0",
-            },
-            method=method
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=30) as r:
-                raw = r.read()
-                return json.loads(raw) if raw else {}
-        except urllib.error.HTTPError as e:
-            try:
-                details = json.loads(e.read().decode("utf-8", errors="replace"))
-                message = details.get("message", e.reason)
-            except Exception:
-                message = e.reason
-            return {"error": str(message), "code": e.code}
-        except Exception as e:
-            return {"error": str(e), "code": 0}
-
-    @staticmethod
-    def _raise_api_error(action: str, response: dict):
-        if response.get("error"):
-            code = response.get("code", "?")
-            raise RuntimeError(f"{action} failed (HTTP {code}): {response['error']}")
-
-    def get_repo_tree(self, max_files: int = 60) -> list[dict]:
-        resp = self._req(f"/repos/{self.repo}/git/trees/HEAD?recursive=1")
-        tree = resp.get("tree", [])
-        code_exts = {".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs",
-                     ".java", ".cpp", ".c", ".cs", ".rb", ".php", ".swift",
-                     ".kt", ".yml", ".yaml", ".json", ".md", ".sh"}
-        files = [f for f in tree if f.get("type") == "blob"
-                 and any(f["path"].endswith(e) for e in code_exts)]
-        return files[:max_files]
-
-    def get_file(self, path: str) -> str:
-        resp = self._req(f"/repos/{self.repo}/contents/{path}")
-        if "content" in resp:
-            return base64.b64decode(resp["content"]).decode("utf-8", errors="replace")
-        return ""
-
-    def get_repo_context(self, max_chars: int = 60_000) -> str:
-        files = self.get_repo_tree(max_files=40)
-        context_parts = [f"# Repository: {self.repo}\n"]
-        total = 0
-        for f in files:
-            if total >= max_chars:
-                break
-            content = self.get_file(f["path"])
-            snippet = content[:3000]
-            chunk = f"\n## {f['path']}\n```\n{snippet}\n```\n"
-            context_parts.append(chunk)
-            total += len(chunk)
-        return "".join(context_parts)
-
-    def get_default_branch(self) -> str:
-        resp = self._req(f"/repos/{self.repo}")
-        return resp.get("default_branch", "main")
-
-    def get_branch_sha(self, branch: str) -> str:
-        resp = self._req(f"/repos/{self.repo}/git/ref/heads/{branch}")
-        return resp.get("object", {}).get("sha", "")
-
-    def create_branch(self, branch_name: str) -> bool:
-        default = self.get_default_branch()
-        sha = self.get_branch_sha(default)
-        if not sha:
-            raise RuntimeError(f"Cannot resolve the HEAD of the default branch '{default}'")
-        resp = self._req(f"/repos/{self.repo}/git/refs", "POST", {
-            "ref": f"refs/heads/{branch_name}",
-            "sha": sha
-        })
-        self._raise_api_error("Create branch", resp)
-        return "ref" in resp
-
-    def get_file_sha(self, path: str, branch: str) -> Optional[str]:
-        resp = self._req(f"/repos/{self.repo}/contents/{path}?ref={branch}")
-        return resp.get("sha")
-
-    def commit_file(self, path: str, content: str, message: str, branch: str) -> bool:
-        clean_path = path.strip().lstrip("/")
-        if not clean_path or ".." in clean_path.split("/"):
-            raise ValueError(f"Unsafe generated file path: {path!r}")
-        sha = self.get_file_sha(clean_path, branch)
-        data = {
-            "message": message,
-            "content": base64.b64encode(content.encode()).decode(),
-            "branch":  branch,
-        }
-        if sha:
-            data["sha"] = sha
-        resp = self._req(f"/repos/{self.repo}/contents/{urllib.parse.quote(clean_path)}", "PUT", data)
-        self._raise_api_error(f"Commit {clean_path}", resp)
-        return "commit" in resp
-
-    def commit_files(self, files: dict, message: str,
-                     branch: str = "vibe-code/auto") -> list[str]:
-        if not files:
-            raise ValueError("No generated files to commit")
-        self.create_branch(branch)
-        committed = []
-        for path, content in files.items():
-            ok = self.commit_file(path, str(content), f"feat: {message} [{path}]", branch)
-            if ok:
-                committed.append(path)
-        return committed
-
-    def create_pr(self, branch: str, title: str, body: str) -> str:
-        default = self.get_default_branch()
-        resp = self._req(f"/repos/{self.repo}/pulls", "POST", {
-            "title": title,
-            "body":  body,
-            "head":  branch,
-            "base":  default,
-        })
-        self._raise_api_error("Create pull request", resp)
-        return resp.get("html_url", "")
-
-    def get_diff(self, branch: str) -> str:
-        default = self.get_default_branch()
-        resp = self._req(f"/repos/{self.repo}/compare/{default}...{branch}")
-        files = resp.get("files", [])
-        diff_parts = []
-        for f in files[:20]:
-            diff_parts.append(f"### {f['filename']}\n```diff\n{f.get('patch','')}\n```")
-        return "\n".join(diff_parts)
+    DONE = "done"
 
 # ── Planner Agent ──────────────────────────────────────────────────────────────
 class PlannerAgent:
@@ -1117,14 +829,15 @@ Output your plan as valid JSON with this structure:
         write_progress("running", "📐 Planner analyzing task...", agent="planner")
         messages = [
             {"role": "system", "content": self.SYSTEM},
-            {"role": "user",   "content": (
+            {"role": "user", "content": (
                 f"TASK: {task}\n\n"
                 + (f"INTERNET CONTEXT:\n{tool_ctx[:8000]}\n\n" if tool_ctx else "")
                 + (f"REPOSITORY CONTEXT:\n{repo_ctx[:20000]}\n\n" if repo_ctx else "")
                 + "Produce the JSON execution plan."
             )}
         ]
-        raw, tokens = call_model(messages, MODEL_PLANNER, tokens_budget)
+        raw, tokens = call_model(messages, MODEL_PLANNER, tokens_budget,
+                                  phase="planning", purpose="decompose task")
         match = re.search(r'\{[\s\S]*\}', raw)
         if match:
             try:
@@ -1148,10 +861,10 @@ Output your plan as valid JSON with this structure:
                 "the task. Reply with JSON: {\"approved\": true/false, "
                 "\"feedback\": \"...\", \"score\": 0-10}"
             )},
-            {"role": "user", "content":
-                f"TASK: {original_task}\n\nCODE OUTPUT:\n{summary}"}
+            {"role": "user", "content": f"TASK: {original_task}\n\nCODE OUTPUT:\n{summary}"}
         ]
-        raw, tokens = call_model(messages, MODEL_PLANNER, tokens_budget)
+        raw, tokens = call_model(messages, MODEL_PLANNER, tokens_budget,
+                                  phase="reviewing", purpose="code review")
         match = re.search(r'\{[\s\S]*\}', raw)
         if match:
             try:
@@ -1179,8 +892,7 @@ Write complete files, not fragments. Be precise and thorough.""" + (UNCENSORED_A
 
     def implement(self, plan: dict, repo_ctx: str = "", tool_ctx: str = "",
                   feedback: str = "", tokens_budget: int = None) -> dict:
-        write_progress("running",
-                       f"⚡ Coder implementing: {plan.get('summary','...')}",
+        write_progress("running", f"⚡ Coder implementing: {plan.get('summary','...')}",
                        agent="coder")
         steps_txt = json.dumps(plan.get("steps", []), indent=2)
         user_msg = (
@@ -1192,14 +904,15 @@ Write complete files, not fragments. Be precise and thorough.""" + (UNCENSORED_A
         )
         messages = [
             {"role": "system", "content": self.SYSTEM},
-            {"role": "user",   "content": user_msg}
+            {"role": "user", "content": user_msg}
         ]
-        raw, tokens = call_model(messages, MODEL_CODER, tokens_budget or MAX_TOKENS)
+        raw, tokens = call_model(messages, MODEL_CODER, tokens_budget or MAX_TOKENS,
+                                  phase="coding", purpose="implement plan")
         files = {}
         pattern = r'```(?:filename:\s*)?([^\n`]+)\n([\s\S]*?)```'
         for match in re.finditer(pattern, raw):
             fname_raw = match.group(1).strip()
-            content   = match.group(2)
+            content = match.group(2)
             if fname_raw.startswith("filename:"):
                 fname_raw = fname_raw[9:].strip()
             files[fname_raw] = content
@@ -1210,16 +923,15 @@ Write complete files, not fragments. Be precise and thorough.""" + (UNCENSORED_A
 
     def refactor(self, files: dict, feedback: str, tokens_budget: int = None) -> dict:
         write_progress("running", "🔧 Coder refactoring based on review...", agent="coder")
-        files_txt = "\n\n".join(
-            f"```filename: {k}\n{v}\n```" for k, v in files.items()
-        )
+        files_txt = "\n\n".join(f"```filename: {k}\n{v}\n```" for k, v in files.items())
         messages = [
             {"role": "system", "content": self.SYSTEM},
-            {"role": "user",   "content":
+            {"role": "user", "content":
                 f"REFACTOR REQUEST:\n{feedback}\n\nCURRENT CODE:\n{files_txt}\n\n"
                 "Apply all requested changes and output the complete updated files."}
         ]
-        raw, tokens = call_model(messages, MODEL_CODER, tokens_budget or MAX_TOKENS)
+        raw, tokens = call_model(messages, MODEL_CODER, tokens_budget or MAX_TOKENS,
+                                  phase="refactoring", purpose=f"apply: {feedback[:60]}")
         files_out = {}
         for match in re.finditer(r'```(?:filename:\s*)?([^\n`]+)\n([\s\S]*?)```', raw):
             fname = match.group(1).strip().lstrip("filename:").strip()
@@ -1253,35 +965,30 @@ Keep each item concise. Focus on user/developer impact."""
         write_progress("running", "📝 Generating release notes...", agent="release-notes")
         messages = [
             {"role": "system", "content": self.SYSTEM},
-            {"role": "user",   "content": (
+            {"role": "user", "content": (
                 f"TASK DESCRIPTION:\n{task}\n\n"
                 f"FILES CHANGED:\n" + "\n".join(f"- {f}" for f in files_changed)
                 + (f"\n\nDIFF:\n{diff[:8000]}" if diff else "")
                 + "\n\nGenerate the release notes."
             )}
         ]
-        # Use MODEL_SINGLE in single-agent mode — MODEL_PLANNER is not loaded then
         model = MODEL_SINGLE if AGENT_MODE == "single" else MODEL_PLANNER
-        raw, _ = call_model(messages, model, tokens_budget)
+        raw, _ = call_model(messages, model, tokens_budget,
+                             phase="release-notes", purpose="generate release notes")
         return raw
 
 # ── Orchestrator ───────────────────────────────────────────────────────────────
 class Orchestrator:
-    """
-    State machine: FETCHING → PLANNING → CODING → REVIEWING → COMMITTING → RELEASING → DONE
-    """
     MAX_REVIEW_LOOPS = 2
 
     def __init__(self):
-        self.state    = AgentState.IDLE
-        self.planner  = PlannerAgent()
-        self.coder    = CoderAgent()
+        self.state = AgentState.IDLE
+        self.planner = PlannerAgent()
+        self.coder = CoderAgent()
         self.relnotes = ReleaseNotesGenerator()
-        self.router   = ToolRouter()
-        self.git      = GitIntegration(TARGET_REPO, GH_TOKEN) \
-                        if TARGET_REPO and GH_TOKEN else None
+        self.router = ToolRouter()
         self.total_tokens = 0
-        self.reasoning    = []
+        self.reasoning = []
 
     def _transition(self, new_state: AgentState, msg: str):
         self.state = new_state
@@ -1290,21 +997,30 @@ class Orchestrator:
 
     def run(self, task: str) -> dict:
         start_time = time.time()
-        result = {"task": task, "files": {}, "pr_url": "", "release_notes": ""}
+        result = {"task": task, "files": {}, "release_notes": ""}
 
-        # ── 1. Fetch internet context via ToolRouter ───────────────────────────
+        if BUDGET.enabled:
+            print("\n" + "=" * 60)
+            print(f"💰 TOTAL BUDGET: {BUDGET.total:,} tokens")
+            BUDGET.allocate("tools",         0.05)
+            BUDGET.allocate("planning",      0.10)
+            BUDGET.allocate("coding",        0.50)
+            BUDGET.allocate("reviewing",     0.15)
+            BUDGET.allocate("refactoring",   0.10)
+            BUDGET.allocate("release-notes", 0.05)
+            BUDGET.allocate("reserve",       0.05)
+            print("=" * 60 + "\n")
+
+        # 1. Fetch internet context
         self._transition(AgentState.FETCHING, "🌐 Fetching internet context...")
         tool_ctx = self.router.analyze_and_fetch(task, 512)
 
-        # ── 2. Fetch repo context ──────────────────────────────────────────────
+        # 2. Repo context
         repo_ctx = REPO_CONTEXT
-        if not repo_ctx and self.git:
-            self._transition(AgentState.PLANNING, "📡 Fetching repository context...")
-            repo_ctx = self.git.get_repo_context()
 
-        # ── 3. PLANNING ────────────────────────────────────────────────────────
+        # 3. PLANNING
         self._transition(AgentState.PLANNING, f"📐 Planner decomposing: {task[:60]}...")
-        budget_per_call = (TOTAL_BUDGET // 4) if TOTAL_BUDGET else MAX_TOKENS
+        budget_per_call = BUDGET.get_max_tokens(10) if BUDGET.enabled else MAX_TOKENS
         plan = self.planner.decompose(task, repo_ctx, tool_ctx, budget_per_call)
         self.total_tokens += plan.get("_tokens", 0)
         step_labels = [str(s.get("description", "")).strip()
@@ -1319,9 +1035,9 @@ class Orchestrator:
                        self.total_tokens, "planner",
                        extra={"plan": plan.get("summary", "")})
 
-        # ── 4. CODING ──────────────────────────────────────────────────────────
+        # 4. CODING
         self._transition(AgentState.CODING, "⚡ Coder implementing plan...")
-        code_budget = (TOTAL_BUDGET // 2) if TOTAL_BUDGET else MAX_TOKENS
+        code_budget = BUDGET.get_max_tokens(5) if BUDGET.enabled else MAX_TOKENS
         code_result = self.coder.implement(plan, repo_ctx, tool_ctx, "", code_budget)
         self.total_tokens += code_result.get("_tokens", 0)
         files = code_result.get("files", {})
@@ -1330,10 +1046,12 @@ class Orchestrator:
                                           ", ".join(list(files)[:10]),
                                "tokens": code_result.get("_tokens", 0)})
 
-        # ── 5. REVIEW LOOP ─────────────────────────────────────────────────────
+        # 5. REVIEW LOOP
         for loop in range(self.MAX_REVIEW_LOOPS):
-            self._transition(AgentState.REVIEWING,
-                             f"🔍 Planner reviewing (pass {loop+1})...")
+            if BUDGET.is_exhausted():
+                print("💰 Budget exhausted — skipping review loop")
+                break
+            self._transition(AgentState.REVIEWING, f"🔍 Planner reviewing (pass {loop+1})...")
             review = self.planner.review(task, files, budget_per_call)
             self.total_tokens += review.get("_tokens", 0)
             self.reasoning.append({"agent": "planner", "phase": "review",
@@ -1341,13 +1059,13 @@ class Orchestrator:
                                    "tokens": review.get("_tokens", 0),
                                    "approved": review.get("approved"),
                                    "score": review.get("score")})
-
             if review.get("approved", True) or review.get("score", 10) >= 7:
                 write_progress("reviewing",
                                f"✅ Code approved (score: {review.get('score','-')})",
                                self.total_tokens, "planner")
                 break
-
+            if BUDGET.is_exhausted():
+                break
             self._transition(AgentState.CODING,
                              f"🔧 Coder refactoring: {review.get('feedback','')[:60]}")
             refactor = self.coder.refactor(files, review.get("feedback",""), code_budget)
@@ -1360,82 +1078,60 @@ class Orchestrator:
 
         result["files"] = files
 
-        # ── 6. COMMIT / PR ─────────────────────────────────────────────────────
-        can_auto_pr = AUTO_PR and bool(TARGET_REPO) and bool(GH_TOKEN)
-        if AUTO_PR and not TARGET_REPO:
-            print("⚠️ Auto PR skipped: TARGET_REPO is empty")
-        elif AUTO_PR and not GH_TOKEN:
-            print("⚠️ Auto PR skipped: GitHub token is unavailable")
-        if self.git and can_auto_pr:
-            self._transition(AgentState.COMMITTING,
-                             f"🚀 Committing {len(files)} file(s) to GitHub...")
-            now = datetime.datetime.now(datetime.timezone.utc)
-            ts = now.strftime("%Y%m%d-%H%M%S")
-            branch = f"vibe-code/{ts}"
-            committed = self.git.commit_files(files, plan.get("summary", task), branch)
-            if not committed:
-                raise RuntimeError("Auto PR failed: GitHub did not accept any generated files")
-            write_progress("committing", f"✅ Committed: {', '.join(committed[:3])}",
-                           self.total_tokens, "git")
-            pr_url = self.git.create_pr(
-                branch,
-                f"feat: {plan.get('summary', task)[:72]}",
-                f"Generated by VIBE-CODE Multi-Agent\n\n"
-                f"Task: {task}\n\nFiles: {', '.join(committed)}"
-            )
-            if not pr_url:
-                raise RuntimeError("Auto PR failed: GitHub did not return a pull request URL")
-            result["pr_url"] = pr_url
-            write_progress("committing", f"🔗 PR: {pr_url}",
-                           self.total_tokens, "git", extra={"pr_url": pr_url})
-            diff = self.git.get_diff(branch)
-        else:
-            diff = ""
-
-        # ── 7. RELEASE NOTES ──────────────────────────────────────────────────
-        if AUTO_NOTES:
+        # 6. RELEASE NOTES
+        if not BUDGET.is_exhausted():
             self._transition(AgentState.RELEASING, "📝 Generating release notes...")
-            notes = self.relnotes.generate(diff, task, list(files.keys()), 1024)
+            notes = self.relnotes.generate("", task, list(files.keys()), 1024)
             result["release_notes"] = notes
             write_progress("releasing", "✅ Release notes ready",
                            self.total_tokens, "release-notes",
                            extra={"release_notes": notes})
 
-        # ── 8. DONE ────────────────────────────────────────────────────────────
+        # 7. DONE
         elapsed = round(time.time() - start_time, 1)
-        self._transition(AgentState.DONE,
-                         f"🎉 Done in {elapsed}s | {self.total_tokens} tokens")
-        result["elapsed"]      = elapsed
+        self._transition(AgentState.DONE, f"🎉 Done in {elapsed}s | {self.total_tokens} tokens")
+        result["elapsed"] = elapsed
         result["total_tokens"] = self.total_tokens
-        result["reasoning"]    = self.reasoning
+        result["reasoning"] = self.reasoning
         return result
 
 # ── Save outputs ───────────────────────────────────────────────────────────────
-def save_outputs(files: dict, release_notes: str = "", pr_url: str = "",
-                 reasoning: list = None):
+def save_outputs(files: dict, release_notes: str = "", reasoning: list = None):
     for fname, content in files.items():
         safe = fname.lstrip("/").replace("..", "__")
         out_path = os.path.join(OUTPUT_DIR, safe)
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        with open(out_path, "w") as f:
+        with open(out_path, "w", encoding="utf-8") as f:
             f.write(content)
         print(f"📄 {out_path}")
     if release_notes:
-        with open(f"{OUTPUT_DIR}/_release_notes.md", "w") as f:
+        with open(f"{OUTPUT_DIR}/_release_notes.md", "w", encoding="utf-8") as f:
             f.write(release_notes)
-    if pr_url:
-        with open(f"{OUTPUT_DIR}/_pr_url.txt", "w") as f:
-            f.write(pr_url)
-
-    # Save tool inventory
+    # Budget report
+    budget_report = BUDGET.report()
+    with open(f"{OUTPUT_DIR}/_budget_report.json", "w", encoding="utf-8") as f:
+        json.dump(budget_report, f, indent=2, ensure_ascii=False)
+    # Tool inventory
     toolkit = APIToolkit()
     tools = toolkit.available_tools()
-    with open(f"{OUTPUT_DIR}/_tools_status.json", "w") as f:
+    with open(f"{OUTPUT_DIR}/_tools_status.json", "w", encoding="utf-8") as f:
         json.dump(tools, f, indent=2)
-
     if reasoning:
-        with open(f"{OUTPUT_DIR}/_reasoning.json", "w") as f:
+        with open(f"{OUTPUT_DIR}/_reasoning.json", "w", encoding="utf-8") as f:
             json.dump(reasoning, f, indent=2, ensure_ascii=False)
+
+def create_zip() -> str:
+    """Create ZIP archive of all generated files."""
+    zip_path = f"{OUTPUT_DIR}.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(OUTPUT_DIR):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = os.path.relpath(file_path, os.path.dirname(OUTPUT_DIR))
+                zf.write(file_path, arcname)
+    size = os.path.getsize(zip_path)
+    print(f"📦 Created ZIP: {zip_path} ({size:,} bytes)")
+    return zip_path
 
 # ── Single-agent legacy path ───────────────────────────────────────────────────
 def run_single_agent():
@@ -1445,6 +1141,11 @@ def run_single_agent():
     if not ollama_ready(90):
         print("❌ Ollama not ready"); sys.exit(1)
     print("✅ Ollama ready")
+
+    if BUDGET.enabled:
+        print("\n" + "=" * 60)
+        print(f"💰 TOTAL BUDGET: {BUDGET.total:,} tokens")
+        print("=" * 60 + "\n")
 
     reasoning = []
     write_progress("fetching", "Fetching optional internet context", 0,
@@ -1459,7 +1160,7 @@ def run_single_agent():
         "tokens": 0,
     })
 
-    budget_left  = TOTAL_BUDGET or (MAX_TOKENS * ITERATIONS)
+    budget_left = TOTAL_BUDGET or (MAX_TOKENS * ITERATIONS)
     total_tokens = 0
     output_parts = []
     messages = [
@@ -1475,17 +1176,20 @@ def run_single_agent():
     user_msg = PROMPT
     if ATTACHED_CONTENT:
         ext = os.path.splitext(FILE_NAME)[1].lstrip(".") or "txt"
-        user_msg = (f"```{ext}\n# {FILE_NAME}\n{ATTACHED_CONTENT[:60000]}\n```\n\n"
-                    + PROMPT)
+        user_msg = (f"```{ext}\n# {FILE_NAME}\n{ATTACHED_CONTENT[:60000]}\n```\n\n" + PROMPT)
     messages.append({"role": "user", "content": user_msg})
 
     for i in range(max(1, ITERATIONS)):
+        if BUDGET.is_exhausted():
+            print("💰 Budget exhausted — stopping iterations")
+            break
         write_progress("coding", f"Generating iteration {i+1}/{ITERATIONS}", total_tokens,
                        agent="coder", extra={"state": "coding", "iteration": i + 1})
-        budget = min(MAX_TOKENS, budget_left)
-        raw, used = call_model(messages, MODEL_SINGLE, budget)
+        budget = min(MAX_TOKENS, budget_left, BUDGET.get_max_tokens(ITERATIONS - i))
+        raw, used = call_model(messages, MODEL_SINGLE, budget,
+                                phase="coding", purpose=f"iteration {i+1}/{ITERATIONS}")
         total_tokens += used
-        budget_left  -= used
+        budget_left -= used
         output_parts.append(raw)
         reasoning.append({
             "agent": "coder", "phase": f"iteration-{i+1}",
@@ -1499,64 +1203,33 @@ def run_single_agent():
             messages.append({"role": "user", "content": "Continue."})
 
     output = "\n\n".join(output_parts)
-    files  = {FILE_NAME or "output.txt": output}
+    files = {FILE_NAME or "output.txt": output}
     notes = ""
-    pr_url = ""
 
-    git = GitIntegration(TARGET_REPO, GH_TOKEN) if TARGET_REPO and GH_TOKEN else None
-    can_auto_pr = AUTO_PR and bool(TARGET_REPO) and bool(GH_TOKEN)
-    if AUTO_PR and not TARGET_REPO:
-        print("⚠️ Auto PR skipped: TARGET_REPO is empty")
-    elif AUTO_PR and not GH_TOKEN:
-        print("⚠️ Auto PR skipped: GitHub token is unavailable")
-    if can_auto_pr:
-        write_progress("committing", f"Publishing {len(files)} file(s) to {TARGET_REPO}",
-                       total_tokens, agent="git", extra={"state": "committing"})
-        now = datetime.datetime.now(datetime.timezone.utc)
-        branch = f"vibe-code/{now:%Y%m%d-%H%M%S}"
-        committed = git.commit_files(files, PROMPT[:72] or "VIBE-CODE output", branch)
-        if not committed:
-            raise RuntimeError("Auto PR failed: GitHub did not accept any generated files")
-        pr_url = git.create_pr(
-            branch,
-            f"feat: {(PROMPT or 'VIBE-CODE changes')[:66]}",
-            "Generated by VIBE-CODE\n\n" +
-            f"Task: {PROMPT}\n\nFiles: {', '.join(committed)}",
-        )
-        if not pr_url:
-            raise RuntimeError("Auto PR failed: GitHub did not return a pull request URL")
-        reasoning.append({
-            "agent": "git", "phase": "publishing",
-            "content": f"Committed {len(committed)} file(s) and created a pull request",
-            "tokens": 0,
-        })
-
-    if AUTO_NOTES:
+    if not BUDGET.is_exhausted():
         write_progress("releasing", "Generating release notes", total_tokens,
                        agent="release-notes", extra={"state": "releasing"})
         gen = ReleaseNotesGenerator()
         notes = gen.generate("", PROMPT, list(files.keys()))
 
-    save_outputs(files, notes, pr_url, reasoning)
+    save_outputs(files, notes, reasoning)
     write_progress("done", f"✅ Done | {total_tokens} tokens", total_tokens,
-                   extra={"release_notes": notes, "pr_url": pr_url,
-                          "reasoning_steps": len(reasoning)})
+                   extra={"release_notes": notes, "reasoning_steps": len(reasoning)})
     return {"files": files, "total_tokens": total_tokens,
-            "reasoning": reasoning, "pr_url": pr_url, "release_notes": notes}
+            "reasoning": reasoning, "release_notes": notes}
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 def main():
     print("=" * 60)
     now = datetime.datetime.now(datetime.timezone.utc)
-    print(f"  VIBE-CODE v2  |  mode={AGENT_MODE}  |  {now:%Y-%m-%d %H:%M}")
+    print(f"  VIBE-CODE v3  |  mode={AGENT_MODE}  |  {now:%Y-%m-%d %H:%M}")
     print("=" * 60)
 
     if not PROMPT:
         print("❌ No PROMPT provided"); sys.exit(1)
 
-    # Print active integrations
     toolkit = APIToolkit()
-    active  = [t["name"] for t in toolkit.available_tools() if t["active"]]
+    active = [t["name"] for t in toolkit.available_tools() if t["active"]]
     print(f"🔌 Active tools ({len(active)}): {', '.join(active[:8])}{'...' if len(active)>8 else ''}")
     print()
 
@@ -1567,17 +1240,32 @@ def main():
     if AGENT_MODE == "multi":
         print(f"🧠 Planner : {MODEL_PLANNER}")
         print(f"⚡ Coder   : {MODEL_CODER}")
-        if TARGET_REPO:
-            print(f"📂 Repo    : {TARGET_REPO}")
         print()
         orc = Orchestrator()
         result = orc.run(PROMPT)
         save_outputs(result.get("files", {}),
                      result.get("release_notes", ""),
-                     result.get("pr_url", ""),
                      result.get("reasoning", []))
     else:
         run_single_agent()
+
+    # Create ZIP at the end
+    create_zip()
+
+    # Final budget summary
+    print("\n" + "=" * 60)
+    print("💰 FINAL BUDGET REPORT")
+    print("=" * 60)
+    report = BUDGET.report()
+    print(f"  Total:       {report['total']:>10,} tokens")
+    print(f"  Used:        {report['used']:>10,} tokens ({report['utilization_pct']:.1f}%)")
+    print(f"  Remaining:   {report['remaining']:>10,} tokens")
+    print(f"  Num calls:   {report['num_calls']:>10}")
+    if report['allocations']:
+        print("\n  Allocations:")
+        for phase, amount in report['allocations'].items():
+            print(f"    {phase:<16} {amount:>10,} tokens")
+    print("=" * 60)
 
 if __name__ == "__main__":
     main()
