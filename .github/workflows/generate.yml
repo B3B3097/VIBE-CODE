@@ -51,6 +51,16 @@ on:
         default: 'false'
         type: choice
         options: ['false', 'true']
+      auto_pr:
+        description: '(deprecated — use pr.yaml workflow instead)'
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+      auto_notes:
+        description: 'Generate release notes'
+        default: 'true'
+        type: choice
+        options: ['false', 'true']
       secrets_repo:
         description: 'Private repo with API keys (owner/repo, empty = use repo secrets)'
         default: ''
@@ -312,6 +322,8 @@ jobs:
           ITERATIONS: "${{ inputs.iterations }}"
           TOTAL_BUDGET: "${{ inputs.total_budget }}"
           UNCENSORED: "${{ inputs.uncensored }}"
+          AUTO_PR: "${{ inputs.auto_pr }}"
+          AUTO_NOTES: "${{ inputs.auto_notes }}"
           OUTPUT_DIR: "/tmp/vibe_output"
 
           # ── API keys from repository secrets ──
