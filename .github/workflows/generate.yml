@@ -438,8 +438,7 @@ jobs:
             cp "/tmp/vibe_output/$f" "$FOLDER/" 2>/dev/null || true
           done
           
-          # Copy ZIP
-          cp /tmp/vibe_output.zip "$FOLDER/vibe-output.zip" 2>/dev/null || true
+          # NOTE: ZIP is NOT committed to git — it's available via artifacts only
           
           # Create run summary
           cat > "$FOLDER/_run_summary.md" << SUMMARY
@@ -459,9 +458,14 @@ jobs:
           | **Single** | ${{ inputs.model_single }} |
           | **Timestamp** | $(date -u +"%Y-%m-%d %H:%M UTC") |
 
+          ## 📦 Download result (ZIP)
+          Artifacts available at:
+          https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Scroll to **Artifacts** section → download \`vibe-output-${{ github.run_id }}\`
+
           ## 🔗 Create PR
-          To create a PR from this run, go to **Actions → VIBE-CODE Create PR → Run workflow**
-          and enter:
+          Go to **Actions → VIBE-CODE Create PR → Run workflow**
           - **Run ID:** \`${{ github.run_id }}\`
           - **Target repo:** \`owner/repo\`
           SUMMARY
@@ -486,14 +490,14 @@ jobs:
           fi
 
       # ══════════════════════════════════════════════════════════════════════
-      # 13. UPLOAD ZIP AS ARTIFACT
+      # 13. UPLOAD FOLDER AS ARTIFACT (not ZIP — GitHub will zip it properly)
       # ══════════════════════════════════════════════════════════════════════
       - name: Upload output as artifact
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: vibe-output-${{ github.run_id }}
-          path: /tmp/vibe_output.zip
+          path: /tmp/vibe_output/
           retention-days: 30
 
       # ══════════════════════════════════════════════════════════════════════
