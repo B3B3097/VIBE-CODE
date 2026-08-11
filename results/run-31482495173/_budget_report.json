@@ -1,0 +1,34 @@
+{
+  "total": 150000,
+  "used": 1075,
+  "remaining": 148925,
+  "utilization_pct": 0.72,
+  "allocations": {},
+  "num_calls": 3,
+  "calls": [
+    {
+      "phase": "tools",
+      "purpose": "analyze task",
+      "tokens": 497,
+      "total_used": 497,
+      "remaining": 149503,
+      "timestamp": "2026-08-11T10:31:56.182071+00:00"
+    },
+    {
+      "phase": "coding",
+      "purpose": "iteration 1/1",
+      "tokens": 384,
+      "total_used": 881,
+      "remaining": 149119,
+      "timestamp": "2026-08-11T10:32:40.548774+00:00"
+    },
+    {
+      "phase": "release-notes",
+      "purpose": "generate release notes",
+      "tokens": 194,
+      "total_used": 1075,
+      "remaining": 148925,
+      "timestamp": "2026-08-11T10:32:59.239582+00:00"
+    }
+  ]
+}
