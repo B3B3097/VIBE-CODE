@@ -1,8 +1,3 @@
-"""
-VIBE-CODE v2 — Multi-Agent Local LLM Code Platform
-Agents: Qwen 2.5 (Planner/Architect) + Prism Bonsai 27B (Coder/Executor)
-Internet: 35+ public/premium API integrations via APIToolkit + ToolRouter
-"""
 import os, sys, json, re, time, datetime, base64, urllib.request, urllib.error, urllib.parse
 from enum import Enum
 from typing import Optional
@@ -28,12 +23,12 @@ MODE           = os.getenv("MODE",          "generate")
 # "Создай файл test.txt" or "create file src/main.py".
 if not FILE_NAME:
     filename_match = re.search(
-        r"(?:файл|file)\s+[`\"']?([\w./\\-]+\.[A-Za-z0-9]{1,12})[`\"']?",
+        r"(?:файл|file)\s+[`\"']?([\w./-]+\.[A-Za-z0-9]{1,12})[`\"']?",
         PROMPT,
         flags=re.IGNORECASE,
     )
     if filename_match:
-        FILE_NAME = filename_match.group(1).replace("\\", "/").lstrip("/")
+        FILE_NAME = filename_match.group(1).replace("", "/").lstrip("/")
 MAX_TOKENS     = int(os.getenv("MAX_TOKENS", "4096"))
 UNCENSORED     = os.getenv("UNCENSORED", "false").lower() in ("true", "1", "yes", "on")
 UNCENSORED_ADDENDUM = """
@@ -122,7 +117,7 @@ def write_progress(status: str, message: str, tokens_used: int = 0,
         "tokensUsed":   tokens_used,
         "total_tokens": tokens_used,
         "agent":        agent,
-        "timestamp":    datetime.datetime.utcnow().isoformat(),
+        "timestamp":    datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
     if extra:
         data.update(extra)
@@ -714,55 +709,55 @@ class APIToolkit:
         )
         return result
 
-    def available_tools(self) -> list[dict]:
-        """Returns list of all tools with their status (active/needs_key)."""
+    def available_tools(self) -> list:
+        """Return all tool definitions with active status."""
         tools = [
-            {"name": "web_search",        "category": "Search",        "free": not API_KEYS.get("SERPER_API_KEY"), "key": "SERPER_API_KEY"},
-            {"name": "brave_search",       "category": "Search",        "free": False, "key": "BRAVE_API_KEY"},
-            {"name": "wikipedia",          "category": "Search",        "free": True,  "key": None},
-            {"name": "fetch_url",          "category": "Web",           "free": True,  "key": None},
-            {"name": "weather",            "category": "Weather",       "free": True,  "key": "OPENWEATHER_API_KEY"},
-            {"name": "weather_forecast",   "category": "Weather",       "free": True,  "key": None},
-            {"name": "news",               "category": "News",          "free": False, "key": "NEWS_API_KEY"},
-            {"name": "openai_chat",        "category": "AI/LLM",        "free": False, "key": "OPENAI_API_KEY"},
-            {"name": "anthropic_chat",     "category": "AI/LLM",        "free": False, "key": "ANTHROPIC_API_KEY"},
-            {"name": "groq_chat",          "category": "AI/LLM",        "free": False, "key": "GROQ_API_KEY"},
-            {"name": "together_ai",        "category": "AI/LLM",        "free": False, "key": "TOGETHER_API_KEY"},
-            {"name": "huggingface_inference", "category": "AI/LLM",    "free": True,  "key": "HF_API_KEY"},
-            {"name": "cohere_generate",    "category": "AI/LLM",        "free": False, "key": "COHERE_API_KEY"},
-            {"name": "execute_code",       "category": "Code",          "free": True,  "key": None},
-            {"name": "judge0_run",         "category": "Code",          "free": True,  "key": "JUDGE0_API_KEY"},
-            {"name": "crypto_price",       "category": "Finance",       "free": True,  "key": None},
-            {"name": "stock_price",        "category": "Finance",       "free": False, "key": "ALPHAVANTAGE_API_KEY"},
-            {"name": "exchange_rates",     "category": "Finance",       "free": True,  "key": "EXCHANGERATE_API_KEY"},
-            {"name": "countries",          "category": "Data",          "free": True,  "key": None},
-            {"name": "unsplash_search",    "category": "Media",         "free": False, "key": "UNSPLASH_API_KEY"},
-            {"name": "pexels_search",      "category": "Media",         "free": False, "key": "PEXELS_API_KEY"},
-            {"name": "elevenlabs_tts",     "category": "Media",         "free": False, "key": "ELEVENLABS_API_KEY"},
-            {"name": "stability_generate", "category": "Media",         "free": False, "key": "STABILITY_API_KEY"},
-            {"name": "replicate_run",      "category": "Media",         "free": False, "key": "REPLICATE_API_KEY"},
-            {"name": "telegram_send",      "category": "Communication", "free": False, "key": "TELEGRAM_BOT_TOKEN"},
-            {"name": "discord_send",       "category": "Communication", "free": False, "key": "DISCORD_WEBHOOK_URL"},
-            {"name": "slack_send",         "category": "Communication", "free": False, "key": "SLACK_WEBHOOK_URL"},
-            {"name": "wolfram_query",      "category": "Utility",       "free": False, "key": "WOLFRAM_API_KEY"},
-            {"name": "translate",          "category": "Utility",       "free": True,  "key": "DEEPL_API_KEY"},
-            {"name": "ip_info",            "category": "Utility",       "free": True,  "key": "IPINFO_TOKEN"},
-            {"name": "geocode",            "category": "Utility",       "free": True,  "key": None},
-            {"name": "qr_code",            "category": "Utility",       "free": True,  "key": None},
-            {"name": "dictionary",         "category": "Utility",       "free": True,  "key": None},
-            {"name": "world_time",         "category": "Utility",       "free": True,  "key": None},
-            {"name": "random_user",        "category": "Utility",       "free": True,  "key": None},
-            {"name": "github_repo",        "category": "Dev",           "free": True,  "key": "GITHUB_TOKEN"},
-            {"name": "github_search_code", "category": "Dev",           "free": True,  "key": "GITHUB_TOKEN"},
-            {"name": "package_info",       "category": "Dev",           "free": True,  "key": None},
-            {"name": "notion_query",       "category": "Productivity",  "free": False, "key": "NOTION_API_KEY"},
-            {"name": "airtable_list",      "category": "Productivity",  "free": False, "key": "AIRTABLE_API_KEY"},
+            {"name": "web_search", "description": "Google/DuckDuckGo web search", "free": True, "key": None},
+            {"name": "brave_search", "description": "Brave Search API", "free": False, "key": "BRAVE_API_KEY"},
+            {"name": "wikipedia", "description": "Wikipedia article summary", "free": True, "key": None},
+            {"name": "fetch_url", "description": "Fetch content from any URL", "free": True, "key": None},
+            {"name": "weather", "description": "Current weather by location", "free": True, "key": None},
+            {"name": "weather_forecast", "description": "Multi-day weather forecast", "free": True, "key": None},
+            {"name": "news", "description": "Latest news headlines", "free": False, "key": "NEWS_API_KEY"},
+            {"name": "openai_chat", "description": "OpenAI GPT chat", "free": False, "key": "OPENAI_API_KEY"},
+            {"name": "anthropic_chat", "description": "Anthropic Claude chat", "free": False, "key": "ANTHROPIC_API_KEY"},
+            {"name": "groq_chat", "description": "Groq fast LLM inference", "free": False, "key": "GROQ_API_KEY"},
+            {"name": "together_ai", "description": "Together AI models", "free": False, "key": "TOGETHER_API_KEY"},
+            {"name": "huggingface_inference", "description": "HuggingFace model inference", "free": False, "key": "HF_API_KEY"},
+            {"name": "cohere_generate", "description": "Cohere text generation", "free": False, "key": "COHERE_API_KEY"},
+            {"name": "execute_code", "description": "Run code (Python/JS/Go/Rust/Java/C++)", "free": True, "key": None},
+            {"name": "judge0_run", "description": "Run code via Judge0", "free": False, "key": "JUDGE0_API_KEY"},
+            {"name": "crypto_price", "description": "Cryptocurrency price", "free": True, "key": None},
+            {"name": "stock_price", "description": "Stock price quote", "free": False, "key": "ALPHAVANTAGE_API_KEY"},
+            {"name": "exchange_rates", "description": "Currency exchange rates", "free": True, "key": None},
+            {"name": "countries", "description": "Country information", "free": True, "key": None},
+            {"name": "unsplash_search", "description": "Unsplash photo search", "free": False, "key": "UNSPLASH_API_KEY"},
+            {"name": "pexels_search", "description": "Pexels photo search", "free": False, "key": "PEXELS_API_KEY"},
+            {"name": "elevenlabs_tts", "description": "ElevenLabs text-to-speech", "free": False, "key": "ELEVENLABS_API_KEY"},
+            {"name": "telegram_send", "description": "Send Telegram message", "free": False, "key": "TELEGRAM_BOT_TOKEN"},
+            {"name": "discord_send", "description": "Send Discord webhook", "free": False, "key": "DISCORD_WEBHOOK_URL"},
+            {"name": "slack_send", "description": "Send Slack webhook", "free": False, "key": "SLACK_WEBHOOK_URL"},
+            {"name": "wolfram_query", "description": "Wolfram Alpha computation", "free": False, "key": "WOLFRAM_API_KEY"},
+            {"name": "translate", "description": "Translate text", "free": True, "key": None},
+            {"name": "ip_info", "description": "IP geolocation", "free": True, "key": None},
+            {"name": "geocode", "description": "Address to coordinates", "free": True, "key": None},
+            {"name": "qr_code", "description": "Generate QR code", "free": True, "key": None},
+            {"name": "dictionary", "description": "Word definition", "free": True, "key": None},
+            {"name": "world_time", "description": "Current time anywhere", "free": True, "key": None},
+            {"name": "uuid_generate", "description": "Generate UUID", "free": True, "key": None},
+            {"name": "random_user", "description": "Random user data", "free": True, "key": None},
+            {"name": "github_repo", "description": "GitHub repository info", "free": True, "key": None},
+            {"name": "github_search_code", "description": "Search GitHub code", "free": True, "key": None},
+            {"name": "package_info", "description": "PyPI or NPM package info", "free": True, "key": None},
+            {"name": "notion_query", "description": "Query Notion database", "free": False, "key": "NOTION_API_KEY"},
+            {"name": "airtable_list", "description": "List Airtable records", "free": False, "key": "AIRTABLE_API_KEY"},
+            {"name": "stability_generate", "description": "Stability AI image generation", "free": False, "key": "STABILITY_API_KEY"},
+            {"name": "replicate_run", "description": "Run Replicate model", "free": False, "key": "REPLICATE_API_KEY"},
         ]
         for t in tools:
-            key = t.get("key")
+            key = t["key"]
             t["active"] = t["free"] or (bool(key) and bool(API_KEYS.get(key, "")))
         return tools
-
 
 # ── Tool Router ────────────────────────────────────────────────────────────────
 class ToolRouter:
@@ -889,7 +884,6 @@ Return empty array if no tools needed.
                        agent="tools")
         return context
 
-
 # ── Ollama helpers ─────────────────────────────────────────────────────────────
 def ollama_ready(timeout=120):
     deadline = time.time() + timeout
@@ -908,7 +902,6 @@ def estimate_tokens(text: str) -> int:
     latin = sum(1 for c in text if ord(c) < 0x0400)
     other = len(text) - latin
     return int(latin / 4 + other / 2)
-
 
 def call_model(messages: list, model: str = None, max_tokens: int = None) -> tuple[str, int]:
     """Call Ollama /api/chat. Returns (text, tokens_used)."""
@@ -1094,7 +1087,6 @@ class GitIntegration:
             diff_parts.append(f"### {f['filename']}\n```diff\n{f.get('patch','')}\n```")
         return "\n".join(diff_parts)
 
-
 # ── Planner Agent ──────────────────────────────────────────────────────────────
 class PlannerAgent:
     SYSTEM = """You are a Senior Software Architect. Your role is to:
@@ -1170,7 +1162,6 @@ Output your plan as valid JSON with this structure:
                 pass
         return {"approved": True, "feedback": raw, "score": 7, "_tokens": tokens}
 
-
 # ── Coder Agent ────────────────────────────────────────────────────────────────
 class CoderAgent:
     SYSTEM = """You are an expert software engineer. Your role is to:
@@ -1237,7 +1228,6 @@ Write complete files, not fragments. Be precise and thorough.""" + (UNCENSORED_A
             files_out = files
         return {"files": files_out, "_tokens": tokens}
 
-
 # ── Release Notes ──────────────────────────────────────────────────────────────
 class ReleaseNotesGenerator:
     SYSTEM = """You are a technical writer specializing in release notes.
@@ -1274,7 +1264,6 @@ Keep each item concise. Focus on user/developer impact."""
         model = MODEL_SINGLE if AGENT_MODE == "single" else MODEL_PLANNER
         raw, _ = call_model(messages, model, tokens_budget)
         return raw
-
 
 # ── Orchestrator ───────────────────────────────────────────────────────────────
 class Orchestrator:
@@ -1380,7 +1369,8 @@ class Orchestrator:
         if self.git and can_auto_pr:
             self._transition(AgentState.COMMITTING,
                              f"🚀 Committing {len(files)} file(s) to GitHub...")
-            ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+            now = datetime.datetime.now(datetime.timezone.utc)
+            ts = now.strftime("%Y%m%d-%H%M%S")
             branch = f"vibe-code/{ts}"
             committed = self.git.commit_files(files, plan.get("summary", task), branch)
             if not committed:
@@ -1420,7 +1410,6 @@ class Orchestrator:
         result["reasoning"]    = self.reasoning
         return result
 
-
 # ── Save outputs ───────────────────────────────────────────────────────────────
 def save_outputs(files: dict, release_notes: str = "", pr_url: str = "",
                  reasoning: list = None):
@@ -1447,7 +1436,6 @@ def save_outputs(files: dict, release_notes: str = "", pr_url: str = "",
     if reasoning:
         with open(f"{OUTPUT_DIR}/_reasoning.json", "w") as f:
             json.dump(reasoning, f, indent=2, ensure_ascii=False)
-
 
 # ── Single-agent legacy path ───────────────────────────────────────────────────
 def run_single_agent():
@@ -1524,7 +1512,8 @@ def run_single_agent():
     if can_auto_pr:
         write_progress("committing", f"Publishing {len(files)} file(s) to {TARGET_REPO}",
                        total_tokens, agent="git", extra={"state": "committing"})
-        branch = f"vibe-code/{datetime.datetime.utcnow():%Y%m%d-%H%M%S}"
+        now = datetime.datetime.now(datetime.timezone.utc)
+        branch = f"vibe-code/{now:%Y%m%d-%H%M%S}"
         committed = git.commit_files(files, PROMPT[:72] or "VIBE-CODE output", branch)
         if not committed:
             raise RuntimeError("Auto PR failed: GitHub did not accept any generated files")
@@ -1555,11 +1544,11 @@ def run_single_agent():
     return {"files": files, "total_tokens": total_tokens,
             "reasoning": reasoning, "pr_url": pr_url, "release_notes": notes}
 
-
 # ── Entry point ────────────────────────────────────────────────────────────────
 def main():
     print("=" * 60)
-    print(f"  VIBE-CODE v2  |  mode={AGENT_MODE}  |  {datetime.datetime.utcnow():%Y-%m-%d %H:%M}")
+    now = datetime.datetime.now(datetime.timezone.utc)
+    print(f"  VIBE-CODE v2  |  mode={AGENT_MODE}  |  {now:%Y-%m-%d %H:%M}")
     print("=" * 60)
 
     if not PROMPT:
@@ -1589,7 +1578,6 @@ def main():
                      result.get("reasoning", []))
     else:
         run_single_agent()
-
 
 if __name__ == "__main__":
     main()
