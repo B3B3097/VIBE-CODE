@@ -67,21 +67,6 @@ on:
       secrets_path:
         description: 'Path to env file with API keys inside secrets repo'
         default: 'vibe/secrets.env'
-      # NOTE: API keys can be stored either as GitHub repository secrets or in a
-      # private repo of your own (see secrets_repo / secrets_path inputs). The
-      # workflow reads the env file from that private repo at run start using
-      # the GH_PAT token (your personal access token) added as a repository secret.
-      # Supported variable names: SERPER_API_KEY, BRAVE_API_KEY, OPENAI_API_KEY,
-      # ANTHROPIC_API_KEY, GROQ_API_KEY, TOGETHER_API_KEY, HF_API_KEY,
-      # OPENWEATHER_API_KEY, NEWS_API_KEY, GNEWS_API_KEY, JUDGE0_API_KEY,
-      # ALPHAVANTAGE_API_KEY, EXCHANGERATE_API_KEY, UNSPLASH_API_KEY,
-      # PEXELS_API_KEY, STABILITY_API_KEY, ELEVENLABS_API_KEY,
-      # TELEGRAM_BOT_TOKEN, DISCORD_WEBHOOK_URL, SLACK_WEBHOOK_URL,
-      # MAILGUN_API_KEY, WOLFRAM_API_KEY, DEEPL_API_KEY, NOTION_API_KEY,
-      # AIRTABLE_API_KEY, SUPABASE_API_KEY, BING_SEARCH_KEY,
-      # COHERE_API_KEY, MISTRAL_API_KEY, REPLICATE_API_KEY,
-      # TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, IPINFO_TOKEN,
-      # MAPBOX_API_KEY, URLSCAN_API_KEY
 
 permissions:
   contents: write
@@ -96,16 +81,15 @@ jobs:
   generate:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-
     steps:
       # ── Checkout ────────────────────────────────────────────────────────────
       - name: Checkout VIBE-CODE
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # ── System info ──────────────────────────────────────────────────────────
       - name: System info
         run: |
-          echo "CPU : $(nproc) cores  $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)"
+          echo "CPU : $(nproc) cores $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)"
           echo "RAM : $(free -h | awk '/^Mem/{print $2}')"
           echo "Mode: ${{ inputs.agent_mode }}"
           echo "Tools: ${{ inputs.enable_tools }}"
@@ -117,17 +101,22 @@ jobs:
           curl -fsSL https://ollama.ai/install.sh | sh
           nohup ollama serve > /tmp/ollama.log 2>&1 &
           echo "Waiting for Ollama…"
-          for i in $(seq 1 30); do
+          for i in $(seq 1 90); do
             curl -sf http://127.0.0.1:11434/api/tags > /dev/null 2>&1 && break
             sleep 2
           done
+          if ! curl -sf http://127.0.0.1:11434/api/tags > /dev/null; then
+            echo "❌ Ollama failed to start! Logs:"
+            tail -n 20 /tmp/ollama.log
+            exit 1
+          fi
           echo "Ollama ready"
 
       # ── Single-agent model cache ──────────────────────────────────────────────
       - name: Restore single-agent model cache
         id: cache-single
         if: inputs.agent_mode == 'single'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.ollama
           key: ollama-${{ inputs.model_single }}-v1
@@ -145,7 +134,7 @@ jobs:
       - name: Restore planner model cache
         id: cache-planner
         if: inputs.agent_mode == 'multi'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.ollama
           key: ollama-${{ inputs.model_planner }}-v1
@@ -159,7 +148,7 @@ jobs:
       - name: Restore Bonsai 27B GGUF cache
         id: cache-bonsai
         if: inputs.agent_mode == 'multi' && inputs.model_coder == 'bonsai-27b'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/bonsai-gguf
           key: bonsai-27b-q1-v1
@@ -197,10 +186,6 @@ jobs:
         run: ollama pull ${{ inputs.model_coder }}
 
       # ── Resolve token: GH_PAT (user PAT) or default GITHUB_TOKEN ─────────────
-      # GITHUB_TOKEN only works inside B3B3097/VIBE-CODE. To create branches/PRs
-      # in another target repo, add a personal access token as the GH_PAT secret:
-      # Settings → Secrets and variables → Actions → New repository secret.
-      # Classic PAT scope: repo. Fine-grained: Contents (R/W) + Pull requests (R/W).
       - name: Resolve GitHub token
         id: resolve-token
         env:
@@ -213,9 +198,6 @@ jobs:
           fi
 
       # ── Load API keys from the user's private secrets repo ───────────────────
-      # The env file (e.g. vibe/secrets.env) lives in your private repo and is
-      # fetched with the GH_PAT token (your PAT). Values are exported to the
-      # environment so generate.py can use them without storing them anywhere.
       - name: Load secrets from private repo
         if: inputs.secrets_repo != ''
         env:
@@ -224,14 +206,14 @@ jobs:
           SECRETS_PATH: ${{ inputs.secrets_path || 'vibe/secrets.env' }}
         run: |
           if ! curl -fsSL -H "Authorization: Bearer $TOKEN" \
-               -H "Accept: application/vnd.github.raw+json" \
-               "https://api.github.com/repos/$SECRETS_REPO/contents/$SECRETS_PATH" \
-               -o /tmp/vibe-secrets.env; then
+                     -H "Accept: application/vnd.github.raw+json" \
+                     "https://api.github.com/repos/$SECRETS_REPO/contents/$SECRETS_PATH" \
+                     -o /tmp/vibe-secrets.env; then
             echo "⚠️ Secrets file not found in $SECRETS_REPO:$SECRETS_PATH — continuing without it"
           else
             while IFS= read -r line || [ -n "$line" ]; do
               case "$line" in
-                ""|\#*) continue ;;
+                ""|#*) continue ;;
                 *=*) echo "$line" >> "$GITHUB_ENV" ;;
               esac
             done < /tmp/vibe-secrets.env
@@ -246,66 +228,65 @@ jobs:
         run: |
           echo "Reading repo: ${{ inputs.target_repo }}"
           python3 read_repo.py "${{ inputs.target_repo }}" "$GH_TOKEN" 60000 > /tmp/repo_ctx_raw.txt 2>&1 || true
-          [ -f /tmp/repo_context.b64 ] && echo "Context: $(wc -c < /tmp/repo_context.b64) bytes" || echo "No context"
+          [ -f /tmp/repo_context.b64 ] && echo "Context: $(wc -c < /tmp/repo_context.b64)" || echo "No context"
 
       # ── Run VIBE-CODE ─────────────────────────────────────────────────────────
       - name: Run VIBE-CODE
         env:
           # ── Core inputs ──
-          PROMPT:        "${{ inputs.prompt }}"
-          FILE_NAME:     "${{ inputs.file_name }}"
-          MODE:          "${{ inputs.mode }}"
-          AGENT_MODE:    "${{ inputs.agent_mode }}"
-          ENABLE_TOOLS:  "${{ inputs.enable_tools }}"
-          TARGET_REPO:   "${{ inputs.target_repo }}"
-          GH_TOKEN:      "${{ steps.resolve-token.outputs.token }}"
-          AUTO_PR:       "${{ inputs.auto_pr }}"
-          AUTO_NOTES:    "${{ inputs.auto_notes }}"
+          PROMPT: "${{ inputs.prompt }}"
+          FILE_NAME: "${{ inputs.file_name }}"
+          MODE: "${{ inputs.mode }}"
+          AGENT_MODE: "${{ inputs.agent_mode }}"
+          ENABLE_TOOLS: "${{ inputs.enable_tools }}"
+          TARGET_REPO: "${{ inputs.target_repo }}"
+          GH_TOKEN: "${{ steps.resolve-token.outputs.token }}"
+          AUTO_PR: "${{ inputs.auto_pr }}"
+          AUTO_NOTES: "${{ inputs.auto_notes }}"
           MODEL_PLANNER: "${{ inputs.model_planner }}"
-          MODEL_CODER:   "${{ inputs.model_coder }}"
-          MODEL_SINGLE:  "${{ inputs.model_single }}"
-          MAX_TOKENS:    "${{ inputs.max_tokens }}"
-          ITERATIONS:    "${{ inputs.iterations }}"
-          TOTAL_BUDGET:  "${{ inputs.total_budget }}"
-          UNCENSORED:    "${{ inputs.uncensored }}"
-          OUTPUT_DIR:    "/tmp/vibe_output"
+          MODEL_CODER: "${{ inputs.model_coder }}"
+          MODEL_SINGLE: "${{ inputs.model_single }}"
+          MAX_TOKENS: "${{ inputs.max_tokens }}"
+          ITERATIONS: "${{ inputs.iterations }}"
+          TOTAL_BUDGET: "${{ inputs.total_budget }}"
+          UNCENSORED: "${{ inputs.uncensored }}"
+          OUTPUT_DIR: "/tmp/vibe_output"
           # ── API keys from repository secrets ──
-          # Add these under Settings → Secrets → Actions in your repo
-          SERPER_API_KEY:        "${{ secrets.SERPER_API_KEY }}"
-          BRAVE_API_KEY:         "${{ secrets.BRAVE_API_KEY }}"
-          BING_SEARCH_KEY:       "${{ secrets.BING_SEARCH_KEY }}"
-          OPENWEATHER_API_KEY:   "${{ secrets.OPENWEATHER_API_KEY }}"
-          NEWS_API_KEY:          "${{ secrets.NEWS_API_KEY }}"
-          GNEWS_API_KEY:         "${{ secrets.GNEWS_API_KEY }}"
-          OPENAI_API_KEY:        "${{ secrets.OPENAI_API_KEY }}"
-          ANTHROPIC_API_KEY:     "${{ secrets.ANTHROPIC_API_KEY }}"
-          GROQ_API_KEY:          "${{ secrets.GROQ_API_KEY }}"
-          TOGETHER_API_KEY:      "${{ secrets.TOGETHER_API_KEY }}"
-          HF_API_KEY:            "${{ secrets.HF_API_KEY }}"
-          COHERE_API_KEY:        "${{ secrets.COHERE_API_KEY }}"
-          MISTRAL_API_KEY:       "${{ secrets.MISTRAL_API_KEY }}"
-          REPLICATE_API_KEY:     "${{ secrets.REPLICATE_API_KEY }}"
-          JUDGE0_API_KEY:        "${{ secrets.JUDGE0_API_KEY }}"
-          ALPHAVANTAGE_API_KEY:  "${{ secrets.ALPHAVANTAGE_API_KEY }}"
-          EXCHANGERATE_API_KEY:  "${{ secrets.EXCHANGERATE_API_KEY }}"
-          UNSPLASH_API_KEY:      "${{ secrets.UNSPLASH_API_KEY }}"
-          PEXELS_API_KEY:        "${{ secrets.PEXELS_API_KEY }}"
-          STABILITY_API_KEY:     "${{ secrets.STABILITY_API_KEY }}"
-          ELEVENLABS_API_KEY:    "${{ secrets.ELEVENLABS_API_KEY }}"
-          TELEGRAM_BOT_TOKEN:    "${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          DISCORD_WEBHOOK_URL:   "${{ secrets.DISCORD_WEBHOOK_URL }}"
-          SLACK_WEBHOOK_URL:     "${{ secrets.SLACK_WEBHOOK_URL }}"
-          MAILGUN_API_KEY:       "${{ secrets.MAILGUN_API_KEY }}"
-          TWILIO_ACCOUNT_SID:    "${{ secrets.TWILIO_ACCOUNT_SID }}"
-          TWILIO_AUTH_TOKEN:     "${{ secrets.TWILIO_AUTH_TOKEN }}"
-          WOLFRAM_API_KEY:       "${{ secrets.WOLFRAM_API_KEY }}"
-          DEEPL_API_KEY:         "${{ secrets.DEEPL_API_KEY }}"
-          IPINFO_TOKEN:          "${{ secrets.IPINFO_TOKEN }}"
-          MAPBOX_API_KEY:        "${{ secrets.MAPBOX_API_KEY }}"
-          URLSCAN_API_KEY:       "${{ secrets.URLSCAN_API_KEY }}"
-          NOTION_API_KEY:        "${{ secrets.NOTION_API_KEY }}"
-          AIRTABLE_API_KEY:      "${{ secrets.AIRTABLE_API_KEY }}"
-          SUPABASE_API_KEY:      "${{ secrets.SUPABASE_API_KEY }}"
+          SERPER_API_KEY: "${{ secrets.SERPER_API_KEY }}"
+          BRAVE_API_KEY: "${{ secrets.BRAVE_API_KEY }}"
+          BING_SEARCH_KEY: "${{ secrets.BING_SEARCH_KEY }}"
+          OPENWEATHER_API_KEY: "${{ secrets.OPENWEATHER_API_KEY }}"
+          NEWS_API_KEY: "${{ secrets.NEWS_API_KEY }}"
+          GNEWS_API_KEY: "${{ secrets.GNEWS_API_KEY }}"
+          OPENAI_API_KEY: "${{ secrets.OPENAI_API_KEY }}"
+          ANTHROPIC_API_KEY: "${{ secrets.ANTHROPIC_API_KEY }}"
+          GROQ_API_KEY: "${{ secrets.GROQ_API_KEY }}"
+          TOGETHER_API_KEY: "${{ secrets.TOGETHER_API_KEY }}"
+          HF_API_KEY: "${{ secrets.HF_API_KEY }}"
+          COHERE_API_KEY: "${{ secrets.COHERE_API_KEY }}"
+          MISTRAL_API_KEY: "${{ secrets.MISTRAL_API_KEY }}"
+          REPLICATE_API_KEY: "${{ secrets.REPLICATE_API_KEY }}"
+          JUDGE0_API_KEY: "${{ secrets.JUDGE0_API_KEY }}"
+          ALPHAVANTAGE_API_KEY: "${{ secrets.ALPHAVANTAGE_API_KEY }}"
+          EXCHANGERATE_API_KEY: "${{ secrets.EXCHANGERATE_API_KEY }}"
+          UNSPLASH_API_KEY: "${{ secrets.UNSPLASH_API_KEY }}"
+          PEXELS_API_KEY: "${{ secrets.PEXELS_API_KEY }}"
+          STABILITY_API_KEY: "${{ secrets.STABILITY_API_KEY }}"
+          ELEVENLABS_API_KEY: "${{ secrets.ELEVENLABS_API_KEY }}"
+          TELEGRAM_BOT_TOKEN: "${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          DISCORD_WEBHOOK_URL: "${{ secrets.DISCORD_WEBHOOK_URL }}"
+          SLACK_WEBHOOK_URL: "${{ secrets.SLACK_WEBHOOK_URL }}"
+          MAILGUN_API_KEY: "${{ secrets.MAILGUN_API_KEY }}"
+          TWILIO_ACCOUNT_SID: "${{ secrets.TWILIO_ACCOUNT_SID }}"
+          TWILIO_AUTH_TOKEN: "${{ secrets.TWILIO_AUTH_TOKEN }}"
+          WOLFRAM_API_KEY: "${{ secrets.WOLFRAM_API_KEY }}"
+          DEEPL_API_KEY: "${{ secrets.DEEPL_API_KEY }}"
+          IPINFO_TOKEN: "${{ secrets.IPINFO_TOKEN }}"
+          MAPBOX_API_KEY: "${{ secrets.MAPBOX_API_KEY }}"
+          URLSCAN_API_KEY: "${{ secrets.URLSCAN_API_KEY }}"
+          NOTION_API_KEY: "${{ secrets.NOTION_API_KEY }}"
+          AIRTABLE_API_KEY: "${{ secrets.AIRTABLE_API_KEY }}"
+          SUPABASE_API_KEY: "${{ secrets.SUPABASE_API_KEY }}"
         run: |
           mkdir -p /tmp/vibe_output
           python3 generate.py
@@ -320,9 +301,12 @@ jobs:
           echo "=== Tools used ==="
           cat /tmp/vibe_output/_tools_status.json 2>/dev/null | python3 -c "
           import json,sys
-          tools = json.load(sys.stdin)
-          active = [t['name'] for t in tools if t.get('active')]
-          print(f'Active ({len(active)}): {chr(44).join(active[:10])}...')
+          try:
+              tools = json.load(sys.stdin)
+              active = [t['name'] for t in tools if t.get('active')]
+              print(f'Active ({len(active)}): {chr(44).join(active[:10])}...')
+          except Exception:
+              print('none')
           " || echo "none"
           echo ""
           echo "=== Release notes ==="
@@ -335,24 +319,24 @@ jobs:
       - name: Commit results to VIBE-CODE
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_MSG: "feat(vibe): ${{ inputs.prompt }}"
         run: |
-          git config user.name  "VIBE-CODE Bot"
+          git config user.name "VIBE-CODE Bot"
           git config user.email "vibecode-bot@users.noreply.github.com"
-
-          SLUG=$(echo "${{ inputs.prompt }}" | head -c 50 | tr ' /' '--' | tr -cd '[:alnum:]-')
-          FOLDER="results/${SLUG}-$(date +%Y%m%d-%H%M%S)"
+          
+          # Используем ID рана для 100% уникальности и безопасности от спецсимволов
+          FOLDER="results/run-${{ github.run_id }}"
           mkdir -p "$FOLDER"
-
+          
+          # Безопасное копирование файлов
           find /tmp/vibe_output -maxdepth 2 -type f ! -name '_*' -exec cp {} "$FOLDER/" \; 2>/dev/null || true
-          cp /tmp/vibe_output/_release_notes.md "$FOLDER/" 2>/dev/null || true
-          cp /tmp/vibe_output/_pr_url.txt        "$FOLDER/" 2>/dev/null || true
-          cp /tmp/vibe_output/_tools_status.json "$FOLDER/" 2>/dev/null || true
-          cp /tmp/vibe_output/_progress.json     "$FOLDER/" 2>/dev/null || true
-          cp /tmp/vibe_output/_reasoning.json    "$FOLDER/" 2>/dev/null || true
-
+          
+          for f in _release_notes.md _pr_url.txt _tools_status.json _progress.json _reasoning.json; do
+            cp "/tmp/vibe_output/$f" "$FOLDER/" 2>/dev/null || true
+          done
+          
           cat > "$FOLDER/_run_summary.md" << SUMMARY
           # VIBE-CODE Run Summary
-
           | Field | Value |
           |-------|-------|
           | **Prompt** | ${{ inputs.prompt }} |
@@ -364,25 +348,27 @@ jobs:
           | **Auto PR** | ${{ inputs.auto_pr }} |
           | **Timestamp** | $(date -u +"%Y-%m-%d %H:%M UTC") |
           SUMMARY
-
+          
           if python3 -m pip install -q pyyaml && python3 update_token_stats.py; then
             echo "✅ Token statistics updated"
           else
             echo "⚠️ Token statistics update failed; generated results will still be committed"
           fi
-
+          
           git add "$FOLDER" token_usage.yaml README.md
           if git diff --staged --quiet; then
             echo "Nothing to commit — outputs folder is empty or unchanged"
           else
-            git commit -m "feat(vibe): ${{ inputs.prompt }}"
+            # Безопасный коммит: пишем сообщение в файл, чтобы избежать проблем с кавычками
+            echo "$COMMIT_MSG" > /tmp/commit_msg.txt
+            git commit -F /tmp/commit_msg.txt
             git push
           fi
 
       # ── Upload artifact ───────────────────────────────────────────────────────
       - name: Upload output as artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: vibe-output-${{ github.run_id }}
           path: /tmp/vibe_output/
