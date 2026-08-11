@@ -1,4 +1,4 @@
-name: VIBE-CODE v2 — Multi-Agent Platform
+name: VIBE-CODE Generate
 
 on:
   workflow_dispatch:
@@ -26,23 +26,13 @@ on:
         type: choice
         options: ['true', 'false']
       target_repo:
-        description: 'Target repo (owner/repo, empty = skip)'
+        description: 'Repo to read context from (owner/repo, empty = skip)'
         default: ''
-      auto_pr:
-        description: 'Create PR automatically'
-        default: 'true'
-        type: choice
-        options: ['true', 'false']
-      auto_notes:
-        description: 'Generate release notes'
-        default: 'true'
-        type: choice
-        options: ['true', 'false']
       model_planner:
-        description: 'Planner model'
+        description: 'Planner model (multi-agent)'
         default: 'qwen2.5:7b'
       model_coder:
-        description: 'Coder model'
+        description: 'Coder model (multi-agent)'
         default: 'bonsai-27b'
       model_single:
         description: 'Single-agent model'
@@ -54,7 +44,7 @@ on:
         description: 'Iterations (single-agent)'
         default: '1'
       total_budget:
-        description: 'Total token budget (0 = auto)'
+        description: 'Total token budget (0 = unlimited)'
         default: '0'
       uncensored:
         description: 'Uncensored mode (no content refusals + security audit)'
@@ -70,8 +60,7 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
-  actions: write
+  actions: read
 
 env:
   OLLAMA_HOST: http://127.0.0.1:11434
@@ -82,80 +71,127 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      # ── Checkout ────────────────────────────────────────────────────────────
+
+      # ══════════════════════════════════════════════════════════════════════
+      # 1. CHECKOUT
+      # ══════════════════════════════════════════════════════════════════════
       - name: Checkout VIBE-CODE
         uses: actions/checkout@v5
 
-      # ── System info ──────────────────────────────────────────────────────────
+      # ══════════════════════════════════════════════════════════════════════
+      # 2. SYSTEM INFO
+      # ══════════════════════════════════════════════════════════════════════
       - name: System info
         run: |
-          echo "CPU : $(nproc) cores $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)"
-          echo "RAM : $(free -h | awk '/^Mem/{print $2}')"
-          echo "Mode: ${{ inputs.agent_mode }}"
-          echo "Tools: ${{ inputs.enable_tools }}"
-          echo "Repo: ${{ inputs.target_repo }}"
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║            VIBE-CODE v3 — Generate                      ║"
+          echo "╚══════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "CPU    : $(nproc) cores $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)"
+          echo "RAM    : $(free -h | awk '/^Mem/{print $2}')"
+          echo "Disk   : $(df -h /tmp | tail -1 | awk '{print $4}') free"
+          echo "Mode   : ${{ inputs.agent_mode }}"
+          echo "Tools  : ${{ inputs.enable_tools }}"
+          echo "Budget : ${{ inputs.total_budget }} tokens"
+          echo "Repo   : ${{ inputs.target_repo || '(none)' }}"
+          echo "Prompt : ${{ inputs.prompt }}"
+          echo ""
 
-      # ── Install Ollama ────────────────────────────────────────────────────────
+      # ══════════════════════════════════════════════════════════════════════
+      # 3. INSTALL OLLAMA
+      # ══════════════════════════════════════════════════════════════════════
       - name: Install Ollama
         run: |
+          echo "⬇️  Installing Ollama..."
           curl -fsSL https://ollama.ai/install.sh | sh
+          
+          echo "🚀 Starting Ollama server..."
           nohup ollama serve > /tmp/ollama.log 2>&1 &
-          echo "Waiting for Ollama…"
+          OLLAMA_PID=$!
+          echo "Ollama PID: $OLLAMA_PID"
+          
+          echo "⏳ Waiting for Ollama to be ready..."
           for i in $(seq 1 90); do
-            curl -sf http://127.0.0.1:11434/api/tags > /dev/null 2>&1 && break
+            if curl -sf http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
+              echo "✅ Ollama ready after ~$((i * 2)) seconds"
+              break
+            fi
             sleep 2
           done
-          if ! curl -sf http://127.0.0.1:11434/api/tags > /dev/null; then
-            echo "❌ Ollama failed to start! Logs:"
-            tail -n 20 /tmp/ollama.log
+          
+          if ! curl -sf http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
+            echo "❌ Ollama failed to start after 180 seconds!"
+            echo "── Last 30 lines of Ollama log ──"
+            tail -n 30 /tmp/ollama.log
+            echo "──────────────────────────────────"
             exit 1
           fi
-          echo "Ollama ready"
+          
+          echo "📋 Ollama version:"
+          ollama --version
 
-      # ── Single-agent model cache ──────────────────────────────────────────────
+      # ══════════════════════════════════════════════════════════════════════
+      # 4. SINGLE-AGENT MODEL CACHE & PULL
+      # ══════════════════════════════════════════════════════════════════════
       - name: Restore single-agent model cache
         id: cache-single
         if: inputs.agent_mode == 'single'
         uses: actions/cache@v5
         with:
           path: ~/.ollama
-          key: ollama-${{ inputs.model_single }}-v1
-          restore-keys: ollama-${{ inputs.model_single }}-
+          key: ollama-${{ inputs.model_single }}-v2
+          restore-keys: |
+            ollama-${{ inputs.model_single }}-
 
       - name: Pull single-agent model
         if: inputs.agent_mode == 'single' && steps.cache-single.outputs.cache-hit != 'true'
-        run: ollama pull ${{ inputs.model_single }}
+        run: |
+          echo "⬇️  Pulling ${{ inputs.model_single }}..."
+          ollama pull ${{ inputs.model_single }}
+          echo "✅ Model pulled"
 
       - name: Warm up single-agent model
         if: inputs.agent_mode == 'single' && steps.cache-single.outputs.cache-hit == 'true'
-        run: echo "hi" | timeout 60 ollama run ${{ inputs.model_single }} || true
+        run: |
+          echo "🔥 Warming up ${{ inputs.model_single }}..."
+          echo "hi" | timeout 60 ollama run ${{ inputs.model_single }} || true
+          echo "✅ Warm-up done"
 
-      # ── Planner model cache (multi-agent) ─────────────────────────────────────
+      # ══════════════════════════════════════════════════════════════════════
+      # 5. PLANNER MODEL CACHE & PULL (multi-agent)
+      # ══════════════════════════════════════════════════════════════════════
       - name: Restore planner model cache
         id: cache-planner
         if: inputs.agent_mode == 'multi'
         uses: actions/cache@v5
         with:
           path: ~/.ollama
-          key: ollama-${{ inputs.model_planner }}-v1
-          restore-keys: ollama-${{ inputs.model_planner }}-
+          key: ollama-${{ inputs.model_planner }}-v2
+          restore-keys: |
+            ollama-${{ inputs.model_planner }}-
 
       - name: Pull planner model
         if: inputs.agent_mode == 'multi' && steps.cache-planner.outputs.cache-hit != 'true'
-        run: ollama pull ${{ inputs.model_planner }}
+        run: |
+          echo "⬇️  Pulling planner model: ${{ inputs.model_planner }}..."
+          ollama pull ${{ inputs.model_planner }}
+          echo "✅ Planner model pulled"
 
-      # ── Bonsai 27B setup ─────────────────────────────────────────────────────
+      # ══════════════════════════════════════════════════════════════════════
+      # 6. BONSAI 27B GGUF (multi-agent coder)
+      # ══════════════════════════════════════════════════════════════════════
       - name: Restore Bonsai 27B GGUF cache
         id: cache-bonsai
         if: inputs.agent_mode == 'multi' && inputs.model_coder == 'bonsai-27b'
         uses: actions/cache@v5
         with:
           path: /tmp/bonsai-gguf
-          key: bonsai-27b-q1-v1
+          key: bonsai-27b-q1-v2
 
       - name: Download Bonsai 27B GGUF
         if: inputs.agent_mode == 'multi' && inputs.model_coder == 'bonsai-27b' && steps.cache-bonsai.outputs.cache-hit != 'true'
         run: |
+          echo "⬇️  Downloading Bonsai 27B GGUF (Q1_0)..."
           pip install -q huggingface_hub
           mkdir -p /tmp/bonsai-gguf
           python3 -c "
@@ -167,10 +203,12 @@ jobs:
           )
           print(f'Downloaded: {path}')
           "
+          echo "✅ Bonsai 27B GGUF downloaded"
 
       - name: Register Bonsai 27B in Ollama
         if: inputs.agent_mode == 'multi' && inputs.model_coder == 'bonsai-27b'
         run: |
+          echo "🔧 Registering bonsai-27b in Ollama..."
           cat > /tmp/bonsai-modelfile << 'EOF'
           FROM /tmp/bonsai-gguf/Bonsai-27B-Q1_0.gguf
           SYSTEM "You are an expert software engineer specializing in writing clean, production-ready code."
@@ -179,13 +217,21 @@ jobs:
           PARAMETER num_predict 4096
           EOF
           ollama create bonsai-27b -f /tmp/bonsai-modelfile
+          echo "✅ bonsai-27b registered"
+          echo ""
+          echo "📋 Installed models:"
           ollama list
 
       - name: Pull generic coder model
         if: inputs.agent_mode == 'multi' && inputs.model_coder != 'bonsai-27b'
-        run: ollama pull ${{ inputs.model_coder }}
+        run: |
+          echo "⬇️  Pulling coder model: ${{ inputs.model_coder }}..."
+          ollama pull ${{ inputs.model_coder }}
+          echo "✅ Coder model pulled"
 
-      # ── Resolve token: GH_PAT (user PAT) or default GITHUB_TOKEN ─────────────
+      # ══════════════════════════════════════════════════════════════════════
+      # 7. RESOLVE GITHUB TOKEN
+      # ══════════════════════════════════════════════════════════════════════
       - name: Resolve GitHub token
         id: resolve-token
         env:
@@ -193,11 +239,17 @@ jobs:
         run: |
           if [ -n "$GH_PAT" ]; then
             echo "token=$GH_PAT" >> "$GITHUB_OUTPUT"
+            echo "source=GH_PAT" >> "$GITHUB_OUTPUT"
+            echo "🔑 Using GH_PAT (personal access token)"
           else
             echo "token=${{ secrets.GITHUB_TOKEN }}" >> "$GITHUB_OUTPUT"
+            echo "source=GITHUB_TOKEN" >> "$GITHUB_OUTPUT"
+            echo "🔑 Using default GITHUB_TOKEN"
           fi
 
-      # ── Load API keys from the user's private secrets repo ───────────────────
+      # ══════════════════════════════════════════════════════════════════════
+      # 8. LOAD API KEYS FROM PRIVATE SECRETS REPO
+      # ══════════════════════════════════════════════════════════════════════
       - name: Load secrets from private repo
         if: inputs.secrets_repo != ''
         env:
@@ -205,32 +257,46 @@ jobs:
           SECRETS_REPO: ${{ inputs.secrets_repo }}
           SECRETS_PATH: ${{ inputs.secrets_path || 'vibe/secrets.env' }}
         run: |
+          echo "🔐 Fetching API keys from $SECRETS_REPO:$SECRETS_PATH ..."
           if ! curl -fsSL -H "Authorization: Bearer $TOKEN" \
                      -H "Accept: application/vnd.github.raw+json" \
                      "https://api.github.com/repos/$SECRETS_REPO/contents/$SECRETS_PATH" \
                      -o /tmp/vibe-secrets.env; then
-            echo "⚠️ Secrets file not found in $SECRETS_REPO:$SECRETS_PATH — continuing without it"
+            echo "⚠️  Secrets file not found in $SECRETS_REPO:$SECRETS_PATH — continuing without it"
           else
+            LOADED=0
             while IFS= read -r line || [ -n "$line" ]; do
               case "$line" in
-                ""|#*) continue ;;
-                *=*) echo "$line" >> "$GITHUB_ENV" ;;
+                ""|"#"*) continue ;;
+                *=*)
+                  echo "$line" >> "$GITHUB_ENV"
+                  LOADED=$((LOADED + 1))
+                  ;;
               esac
             done < /tmp/vibe-secrets.env
-            echo "✅ Loaded API keys from $SECRETS_REPO:$SECRETS_PATH"
+            echo "✅ Loaded $LOADED API keys from $SECRETS_REPO:$SECRETS_PATH"
           fi
 
-      # ── Fetch target repo context ─────────────────────────────────────────────
+      # ══════════════════════════════════════════════════════════════════════
+      # 9. FETCH TARGET REPO CONTEXT
+      # ══════════════════════════════════════════════════════════════════════
       - name: Fetch target repo context
         if: inputs.target_repo != ''
         env:
           GH_TOKEN: ${{ steps.resolve-token.outputs.token }}
         run: |
-          echo "Reading repo: ${{ inputs.target_repo }}"
+          echo "📂 Reading repo context: ${{ inputs.target_repo }}"
           python3 read_repo.py "${{ inputs.target_repo }}" "$GH_TOKEN" 60000 > /tmp/repo_ctx_raw.txt 2>&1 || true
-          [ -f /tmp/repo_context.b64 ] && echo "Context: $(wc -c < /tmp/repo_context.b64)" || echo "No context"
+          if [ -f /tmp/repo_context.b64 ]; then
+            SIZE=$(wc -c < /tmp/repo_context.b64)
+            echo "✅ Context saved: $SIZE bytes"
+          else
+            echo "⚠️  No context was generated"
+          fi
 
-      # ── Run VIBE-CODE ─────────────────────────────────────────────────────────
+      # ══════════════════════════════════════════════════════════════════════
+      # 10. RUN VIBE-CODE
+      # ══════════════════════════════════════════════════════════════════════
       - name: Run VIBE-CODE
         env:
           # ── Core inputs ──
@@ -239,10 +305,6 @@ jobs:
           MODE: "${{ inputs.mode }}"
           AGENT_MODE: "${{ inputs.agent_mode }}"
           ENABLE_TOOLS: "${{ inputs.enable_tools }}"
-          TARGET_REPO: "${{ inputs.target_repo }}"
-          GH_TOKEN: "${{ steps.resolve-token.outputs.token }}"
-          AUTO_PR: "${{ inputs.auto_pr }}"
-          AUTO_NOTES: "${{ inputs.auto_notes }}"
           MODEL_PLANNER: "${{ inputs.model_planner }}"
           MODEL_CODER: "${{ inputs.model_coder }}"
           MODEL_SINGLE: "${{ inputs.model_single }}"
@@ -251,13 +313,18 @@ jobs:
           TOTAL_BUDGET: "${{ inputs.total_budget }}"
           UNCENSORED: "${{ inputs.uncensored }}"
           OUTPUT_DIR: "/tmp/vibe_output"
+
           # ── API keys from repository secrets ──
+          # Search & Web
           SERPER_API_KEY: "${{ secrets.SERPER_API_KEY }}"
           BRAVE_API_KEY: "${{ secrets.BRAVE_API_KEY }}"
           BING_SEARCH_KEY: "${{ secrets.BING_SEARCH_KEY }}"
+          # Weather
           OPENWEATHER_API_KEY: "${{ secrets.OPENWEATHER_API_KEY }}"
+          # News
           NEWS_API_KEY: "${{ secrets.NEWS_API_KEY }}"
           GNEWS_API_KEY: "${{ secrets.GNEWS_API_KEY }}"
+          # AI / LLM
           OPENAI_API_KEY: "${{ secrets.OPENAI_API_KEY }}"
           ANTHROPIC_API_KEY: "${{ secrets.ANTHROPIC_API_KEY }}"
           GROQ_API_KEY: "${{ secrets.GROQ_API_KEY }}"
@@ -266,19 +333,24 @@ jobs:
           COHERE_API_KEY: "${{ secrets.COHERE_API_KEY }}"
           MISTRAL_API_KEY: "${{ secrets.MISTRAL_API_KEY }}"
           REPLICATE_API_KEY: "${{ secrets.REPLICATE_API_KEY }}"
+          # Code / Dev
           JUDGE0_API_KEY: "${{ secrets.JUDGE0_API_KEY }}"
+          # Finance / Data
           ALPHAVANTAGE_API_KEY: "${{ secrets.ALPHAVANTAGE_API_KEY }}"
           EXCHANGERATE_API_KEY: "${{ secrets.EXCHANGERATE_API_KEY }}"
+          # Media
           UNSPLASH_API_KEY: "${{ secrets.UNSPLASH_API_KEY }}"
           PEXELS_API_KEY: "${{ secrets.PEXELS_API_KEY }}"
           STABILITY_API_KEY: "${{ secrets.STABILITY_API_KEY }}"
           ELEVENLABS_API_KEY: "${{ secrets.ELEVENLABS_API_KEY }}"
+          # Communication
           TELEGRAM_BOT_TOKEN: "${{ secrets.TELEGRAM_BOT_TOKEN }}"
           DISCORD_WEBHOOK_URL: "${{ secrets.DISCORD_WEBHOOK_URL }}"
           SLACK_WEBHOOK_URL: "${{ secrets.SLACK_WEBHOOK_URL }}"
           MAILGUN_API_KEY: "${{ secrets.MAILGUN_API_KEY }}"
           TWILIO_ACCOUNT_SID: "${{ secrets.TWILIO_ACCOUNT_SID }}"
           TWILIO_AUTH_TOKEN: "${{ secrets.TWILIO_AUTH_TOKEN }}"
+          # Utility
           WOLFRAM_API_KEY: "${{ secrets.WOLFRAM_API_KEY }}"
           DEEPL_API_KEY: "${{ secrets.DEEPL_API_KEY }}"
           IPINFO_TOKEN: "${{ secrets.IPINFO_TOKEN }}"
@@ -287,18 +359,37 @@ jobs:
           NOTION_API_KEY: "${{ secrets.NOTION_API_KEY }}"
           AIRTABLE_API_KEY: "${{ secrets.AIRTABLE_API_KEY }}"
           SUPABASE_API_KEY: "${{ secrets.SUPABASE_API_KEY }}"
+
         run: |
           mkdir -p /tmp/vibe_output
+          echo "🚀 Starting VIBE-CODE..."
+          echo ""
           python3 generate.py
+          EXIT_CODE=$?
+          echo ""
+          echo "VIBE-CODE finished with exit code: $EXIT_CODE"
+          exit $EXIT_CODE
 
-      # ── Show results ──────────────────────────────────────────────────────────
+      # ══════════════════════════════════════════════════════════════════════
+      # 11. SHOW RESULTS
+      # ══════════════════════════════════════════════════════════════════════
       - name: Show generated files
         if: always()
         run: |
-          echo "=== Output directory ==="
-          ls -la /tmp/vibe_output/ 2>/dev/null || echo "empty"
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║                  GENERATED RESULTS                       ║"
+          echo "╚══════════════════════════════════════════════════════════╝"
           echo ""
-          echo "=== Tools used ==="
+          echo "═══ Output directory ═══"
+          ls -la /tmp/vibe_output/ 2>/dev/null || echo "(empty)"
+          echo ""
+          echo "═══ ZIP archive ═══"
+          ls -la /tmp/vibe_output.zip 2>/dev/null || echo "(no zip)"
+          echo ""
+          echo "═══ Budget report ═══"
+          cat /tmp/vibe_output/_budget_report.json 2>/dev/null | python3 -m json.tool || echo "(none)"
+          echo ""
+          echo "═══ Tools used ═══"
           cat /tmp/vibe_output/_tools_status.json 2>/dev/null | python3 -c "
           import json,sys
           try:
@@ -309,13 +400,12 @@ jobs:
               print('none')
           " || echo "none"
           echo ""
-          echo "=== Release notes ==="
-          cat /tmp/vibe_output/_release_notes.md 2>/dev/null || echo "none"
-          echo ""
-          echo "=== PR URL ==="
-          cat /tmp/vibe_output/_pr_url.txt 2>/dev/null || echo "none"
+          echo "═══ Release notes ═══"
+          cat /tmp/vibe_output/_release_notes.md 2>/dev/null || echo "(none)"
 
-      # ── Commit results to this repo ───────────────────────────────────────────
+      # ══════════════════════════════════════════════════════════════════════
+      # 12. COMMIT RESULTS TO VIBE-CODE REPO
+      # ══════════════════════════════════════════════════════════════════════
       - name: Commit results to VIBE-CODE
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -324,57 +414,83 @@ jobs:
           git config user.name "VIBE-CODE Bot"
           git config user.email "vibecode-bot@users.noreply.github.com"
           
-          # Используем ID рана для 100% уникальности и безопасности от спецсимволов
+          # Safe folder name using run ID (no special chars issues)
           FOLDER="results/run-${{ github.run_id }}"
           mkdir -p "$FOLDER"
           
-          # Безопасное копирование файлов
+          # Copy generated code files (exclude metadata)
           find /tmp/vibe_output -maxdepth 2 -type f ! -name '_*' -exec cp {} "$FOLDER/" \; 2>/dev/null || true
           
-          for f in _release_notes.md _pr_url.txt _tools_status.json _progress.json _reasoning.json; do
+          # Copy metadata files individually
+          for f in _release_notes.md _tools_status.json _progress.json _reasoning.json _budget_report.json; do
             cp "/tmp/vibe_output/$f" "$FOLDER/" 2>/dev/null || true
           done
           
+          # Copy ZIP
+          cp /tmp/vibe_output.zip "$FOLDER/vibe-output.zip" 2>/dev/null || true
+          
+          # Create run summary
           cat > "$FOLDER/_run_summary.md" << SUMMARY
           # VIBE-CODE Run Summary
+
           | Field | Value |
           |-------|-------|
+          | **Run ID** | \`${{ github.run_id }}\` |
           | **Prompt** | ${{ inputs.prompt }} |
           | **Mode** | ${{ inputs.agent_mode }} |
+          | **Budget** | ${{ inputs.total_budget }} tokens |
+          | **Max tokens** | ${{ inputs.max_tokens }} |
+          | **Iterations** | ${{ inputs.iterations }} |
           | **Tools** | ${{ inputs.enable_tools }} |
           | **Planner** | ${{ inputs.model_planner }} |
           | **Coder** | ${{ inputs.model_coder }} |
-          | **Target Repo** | ${{ inputs.target_repo }} |
-          | **Auto PR** | ${{ inputs.auto_pr }} |
+          | **Single** | ${{ inputs.model_single }} |
           | **Timestamp** | $(date -u +"%Y-%m-%d %H:%M UTC") |
+
+          ## 🔗 Create PR
+          To create a PR from this run, go to **Actions → VIBE-CODE Create PR → Run workflow**
+          and enter:
+          - **Run ID:** \`${{ github.run_id }}\`
+          - **Target repo:** \`owner/repo\`
           SUMMARY
           
+          # Update token stats
           if python3 -m pip install -q pyyaml && python3 update_token_stats.py; then
             echo "✅ Token statistics updated"
           else
-            echo "⚠️ Token statistics update failed; generated results will still be committed"
+            echo "⚠️  Token statistics update failed; results will still be committed"
           fi
           
           git add "$FOLDER" token_usage.yaml README.md
+          
           if git diff --staged --quiet; then
             echo "Nothing to commit — outputs folder is empty or unchanged"
           else
-            # Безопасный коммит: пишем сообщение в файл, чтобы избежать проблем с кавычками
+            # Safe commit message via file (handles quotes/special chars)
             echo "$COMMIT_MSG" > /tmp/commit_msg.txt
             git commit -F /tmp/commit_msg.txt
             git push
+            echo "✅ Results committed to $FOLDER"
           fi
 
-      # ── Upload artifact ───────────────────────────────────────────────────────
+      # ══════════════════════════════════════════════════════════════════════
+      # 13. UPLOAD ZIP AS ARTIFACT
+      # ══════════════════════════════════════════════════════════════════════
       - name: Upload output as artifact
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: vibe-output-${{ github.run_id }}
-          path: /tmp/vibe_output/
-          retention-days: 7
+          path: /tmp/vibe_output.zip
+          retention-days: 30
 
-      # ── Ollama logs on failure ────────────────────────────────────────────────
+      # ══════════════════════════════════════════════════════════════════════
+      # 14. OLLAMA LOGS ON FAILURE
+      # ══════════════════════════════════════════════════════════════════════
       - name: Print Ollama logs on failure
         if: failure()
-        run: cat /tmp/ollama.log 2>/dev/null | tail -50
+        run: |
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║                  OLLAMA ERROR LOGS                       ║"
+          echo "╚══════════════════════════════════════════════════════════╝"
+          cat /tmp/ollama.log 2>/dev/null | tail -50 || echo "(no logs)"
