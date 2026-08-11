@@ -2,6 +2,7 @@
 VIBE-CODE v3 — Multi-Agent Local LLM Code Platform
 Full 35+ API integrations, real budget tracking, ZIP output.
 Handles simple greetings directly without calling LLM.
+Supports local models (Ollama) and cloud models (Kimi K3, Claude Opus 4).
 PR creation moved to separate pr.yaml workflow.
 """
 
@@ -44,7 +45,7 @@ ITERATIONS     = int(os.getenv("ITERATIONS", "1"))
 TOTAL_BUDGET   = int(os.getenv("TOTAL_BUDGET", "0"))
 CONCURRENCY    = int(os.getenv("CONCURRENCY", "1"))
 
-# ── API Keys (35+ integrations) ────────────────────────────────────────────────
+# ── API Keys (35+ integrations + LLM providers) ────────────────────────────────
 API_KEYS = {
     "SERPER_API_KEY":        os.getenv("SERPER_API_KEY", ""),
     "BRAVE_API_KEY":         os.getenv("BRAVE_API_KEY", ""),
@@ -81,6 +82,8 @@ API_KEYS = {
     "AIRTABLE_API_KEY":      os.getenv("AIRTABLE_API_KEY", ""),
     "NOTION_API_KEY":        os.getenv("NOTION_API_KEY", ""),
     "SUPABASE_API_KEY":      os.getenv("SUPABASE_API_KEY", ""),
+    # ── Cloud LLM providers ──
+    "MOONSHOT_API_KEY":      os.getenv("MOONSHOT_API_KEY", ""),
 }
 
 ATTACHED_CONTENT = ""
@@ -715,7 +718,7 @@ Return empty array if no tools needed.
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# OLLAMA HELPERS
+# OLLAMA & EXTERNAL MODEL HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 def ollama_ready(timeout=120):
     deadline = time.time() + timeout
@@ -736,9 +739,114 @@ def estimate_tokens(text: str) -> int:
     return int(latin / 4 + other / 2)
 
 
+def is_external_model(model: str) -> bool:
+    """Check if model should be called via external API instead of Ollama."""
+    external_prefixes = ("kimi", "claude", "gpt-", "gemini", "mistral-", "deepseek")
+    return model.lower().startswith(external_prefixes)
+
+
+def call_external_model(messages: list, model: str, max_tokens: int = 4096) -> tuple:
+    """Call external LLM APIs (Kimi, Claude) instead of Ollama."""
+    
+    # ── Kimi K3 (Moonshot AI) ─────────────────────────────────────────────
+    if model.lower().startswith("kimi"):
+        key = API_KEYS.get("MOONSHOT_API_KEY")
+        if not key:
+            print("❌ MOONSHOT_API_KEY not set")
+            return "", 0
+        
+        payload = json.dumps({
+            "model": "moonshot-v1-auto",
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": 0.3,
+        }).encode()
+        
+        req = urllib.request.Request(
+            "https://api.moonshot.cn/v1/chat/completions",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+            },
+            method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                resp = json.loads(r.read())
+            text = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+            tokens = resp.get("usage", {}).get("total_tokens", 0)
+            if not tokens:
+                tokens = estimate_tokens(text)
+            return text, tokens
+        except Exception as e:
+            print(f"❌ Kimi API error: {e}")
+            return "", 0
+    
+    # ── Claude (Anthropic) ─────────────────────────────────────────────────
+    if model.lower().startswith("claude"):
+        key = API_KEYS.get("ANTHROPIC_API_KEY")
+        if not key:
+            print("❌ ANTHROPIC_API_KEY not set")
+            return "", 0
+        
+        # Map model names to API model IDs
+        model_map = {
+            "claude-opus-4": "claude-opus-4-20250514",
+            "claude-sonnet-4": "claude-sonnet-4-20250514",
+            "claude-3.5-sonnet": "claude-3-5-sonnet-20241022",
+            "claude-3-opus": "claude-3-opus-20240229",
+        }
+        api_model = model_map.get(model.lower(), model)
+        
+        # Extract system message if present
+        system_msg = ""
+        user_messages = []
+        for m in messages:
+            if m["role"] == "system":
+                system_msg = m["content"]
+            else:
+                user_messages.append(m)
+        
+        payload = {
+            "model": api_model,
+            "max_tokens": max_tokens,
+            "messages": user_messages,
+        }
+        if system_msg:
+            payload["system"] = system_msg
+        
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=json.dumps(payload).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": key,
+                "anthropic-version": "2023-06-01",
+            },
+            method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                resp = json.loads(r.read())
+            text = resp.get("content", [{}])[0].get("text", "")
+            tokens = resp.get("usage", {}).get("input_tokens", 0) + \
+                     resp.get("usage", {}).get("output_tokens", 0)
+            if not tokens:
+                tokens = estimate_tokens(text)
+            return text, tokens
+        except Exception as e:
+            print(f"❌ Claude API error: {e}")
+            return "", 0
+    
+    # ── Unknown external model ─────────────────────────────────────────────
+    print(f"❌ Unknown external model: {model}")
+    return "", 0
+
+
 def call_model(messages: list, model: str = None, max_tokens: int = None,
                phase: str = "general", purpose: str = "") -> tuple:
-    """Call Ollama /api/chat with budget-aware max_tokens."""
+    """Call Ollama or external LLM API with budget-aware max_tokens."""
     if model is None:
         model = MODEL_SINGLE
     if max_tokens is None:
@@ -752,20 +860,32 @@ def call_model(messages: list, model: str = None, max_tokens: int = None,
     )
     temperature = 0.1 if is_simple else 0.3
 
+    # ── Route to external API if model is cloud-based ──────────────────────
+    if is_external_model(model):
+        print(f"🌐 Calling external model: {model}")
+        text, tokens = call_external_model(messages, model, max_tokens)
+        BUDGET.spend(tokens, phase, purpose)
+        return text, tokens
+
+    # ── Ollama (local models) ──────────────────────────────────────────────
     payload = json.dumps({
         "model": model, "messages": messages, "stream": False,
         "options": {"num_predict": max_tokens, "temperature": temperature, "top_p": 0.9}
     }).encode()
     req = urllib.request.Request(f"{OLLAMA_HOST}/api/chat", data=payload,
                                  headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=600) as r:
-        resp = json.loads(r.read())
-    text = resp.get("message", {}).get("content", "")
-    tokens = resp.get("eval_count", 0) + resp.get("prompt_eval_count", 0)
-    if not tokens:
-        tokens = estimate_tokens(text) + sum(estimate_tokens(m.get("content", "")) for m in messages)
-    BUDGET.spend(tokens, phase, purpose)
-    return text, tokens
+    try:
+        with urllib.request.urlopen(req, timeout=600) as r:
+            resp = json.loads(r.read())
+        text = resp.get("message", {}).get("content", "")
+        tokens = resp.get("eval_count", 0) + resp.get("prompt_eval_count", 0)
+        if not tokens:
+            tokens = estimate_tokens(text) + sum(estimate_tokens(m.get("content", "")) for m in messages)
+        BUDGET.spend(tokens, phase, purpose)
+        return text, tokens
+    except Exception as e:
+        print(f"❌ Ollama error: {e}")
+        return "", 0
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1114,10 +1234,14 @@ def run_single_agent():
     print(f"🤖 Single-agent mode | Model: {MODEL_SINGLE}")
     print(f"📝 Task: {PROMPT}")
 
-    if not ollama_ready(90):
-        print("❌ Ollama not ready")
-        sys.exit(1)
-    print("✅ Ollama ready")
+    # Skip Ollama check for external models
+    if not is_external_model(MODEL_SINGLE):
+        if not ollama_ready(90):
+            print("❌ Ollama not ready")
+            sys.exit(1)
+        print("✅ Ollama ready")
+    else:
+        print(f"🌐 Using external model: {MODEL_SINGLE}")
 
     if BUDGET.enabled:
         print("\n" + "=" * 60)
@@ -1234,21 +1358,56 @@ def main():
         sys.exit(1)
 
     # ── Handle simple greetings without calling LLM ──────────────────────────
-    simple_greetings = ["привет", "hi", "hello", "здравствуй", "хай", "hello world"]
-    prompt_lower = PROMPT.strip().lower()
-    if prompt_lower in simple_greetings or len(PROMPT.strip()) < 20:
+    # ONLY exact greeting matches trigger direct response (fixed: no len() check!)
+    simple_greetings = [
+        "привет", "hi", "hello", "здравствуй", "здравствуйте",
+        "хай", "hello world", "hey", "йо", "ку", "privet", "privetik",
+    ]
+    prompt_lower = PROMPT.strip().lower().rstrip("!?. ")
+    
+    if prompt_lower in simple_greetings:
         print("\n👋 Simple greeting detected — responding directly")
         response = (
             f"Привет! 👋\n\nЯ VIBE-CODE v3. Напиши задачу:\n"
             f"- Создай файл index.html с кнопкой\n"
             f"- Напиши Python скрипт для парсинга CSV\n"
-            f"- Сделай REST API на FastAPI\n\n"
+            f"- Сделай REST API на FastAPI\n"
+            f"- Напиши код змейки на Python\n\n"
             f"Ваше сообщение: \"{PROMPT}\""
         )
         files = {"reply.txt": response}
         save_outputs(files, "", [])
         create_zip()
         return
+    
+    # ── Check for task-like keywords to proceed with generation ──────────────
+    task_keywords = [
+        "напиши", "создай", "сделай", "добавь", "исправь", "переделай",
+        "write", "create", "make", "add", "fix", "implement", "build",
+        "код", "скрипт", "программу", "функцию", "класс", "api",
+        "code", "script", "program", "function", "class", "game",
+        "змейк", "тетрис", "калькулятор", "чат", "бот", "сайт",
+        "snake", "tetris", "calculator", "chat", "bot", "website",
+    ]
+    
+    has_task_keyword = any(kw in prompt_lower for kw in task_keywords)
+    
+    if not has_task_keyword and len(PROMPT.strip()) < 30:
+        print("\n⚠️  Prompt looks unclear — asking for clarification")
+        response = (
+            f"Я не совсем понял задачу. Попробуй сформулировать конкретнее:\n\n"
+            f"Примеры хороших промптов:\n"
+            f"- \"Напиши код змейки на Python с pygame\"\n"
+            f"- \"Создай калькулятор на JavaScript\"\n"
+            f"- \"Сделай REST API на FastAPI с авторизацией\"\n\n"
+            f"Твой промпт: \"{PROMPT}\""
+        )
+        files = {"reply.txt": response}
+        save_outputs(files, "", [])
+        create_zip()
+        return
+    
+    print(f"📝 Task detected, proceeding with generation...")
 
     toolkit = APIToolkit()
     active = [t["name"] for t in toolkit.available_tools() if t["active"]]
@@ -1256,10 +1415,15 @@ def main():
           f"{'...' if len(active) > 8 else ''}")
     print()
 
-    if not ollama_ready(120):
-        print("❌ Ollama not ready after 2 min")
-        sys.exit(1)
-    print("✅ Ollama ready\n")
+    # Check Ollama only if using local models
+    uses_local = not (is_external_model(MODEL_SINGLE) or 
+                      is_external_model(MODEL_PLANNER) or 
+                      is_external_model(MODEL_CODER))
+    if uses_local:
+        if not ollama_ready(120):
+            print("❌ Ollama not ready after 2 min")
+            sys.exit(1)
+        print("✅ Ollama ready\n")
 
     if AGENT_MODE == "multi":
         print(f"🧠 Planner : {MODEL_PLANNER}")
