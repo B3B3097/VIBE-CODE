@@ -1,4 +1,4 @@
-name: One-Time Migration → Storage
+name: One-Time Migration → Storage (final)
 
 on:
   workflow_dispatch:
@@ -10,18 +10,23 @@ on:
         description: 'Private storage repo'
         default: 'B3B3097/Storage-VIBE-CODE'
       with_backup:
-        description: 'Also backup token_usage.yaml / config.yaml etc.'
+        description: 'Backup token_usage.yaml / config.yaml etc.'
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+      sanitize:
+        description: 'Clean public repo after migration'
         default: 'true'
         type: choice
         options: ['true', 'false']
       force:
-        description: 'Re-run migration even if marker exists'
+        description: 'Re-run even if marker exists'
         default: 'false'
         type: choice
         options: ['false', 'true']
 
 permissions:
-  contents: read   # пуш в storage идёт через sync_storage.py + токен, не через GITHUB_TOKEN
+  contents: write   # нужно для зачистки публичного репо
 
 env:
   STORAGE_DIR: /tmp/storage
@@ -29,7 +34,7 @@ env:
 jobs:
   migrate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout VIBE-CODE
         uses: actions/checkout@v5
@@ -44,7 +49,7 @@ jobs:
           elif [ -n "$GH_PAT" ]; then echo "token=$GH_PAT" >> "$GITHUB_OUTPUT"; echo "🔑 GH_PAT"
           else echo "token=${{ secrets.GITHUB_TOKEN }}" >> "$GITHUB_OUTPUT"; echo "🔑 GITHUB_TOKEN"; fi
 
-      # ── Собираем ключи из Actions-секретов во ВРЕМЕННЫЙ файл (раннер эфемерный) ──
+      # ── временный файл ключей из Actions-секретов (раннер эфемерный) ──────
       - name: Build ephemeral secrets.env
         env:
           SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
@@ -96,9 +101,9 @@ jobs:
             v="${!k}"
             [ -n "$v" ] && echo "$k=$v" >> /tmp/secrets.env
           done
-          echo "✅ secrets.env built: $(wc -l < /tmp/secrets.env) keys (values never printed)"
+          echo "✅ secrets.env: $(wc -l < /tmp/secrets.env) keys (values never printed)"
 
-      # ── Перенос: чаты из results/run-* + ключи → приватный storage ─────────
+      # ── 1) перенос чатов + ключей в приватный storage ─────────────────────
       - name: Migrate chats + keys
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
@@ -110,7 +115,7 @@ jobs:
           [ "${{ inputs.force }}" = "true" ] && FORCE="--force"
           python3 sync_storage.py migrate $FORCE --source "${{ inputs.source_repo }}"
 
-      # ── Опционально: резервные копии служебных файлов ──────────────────────
+      # ── 2) резервные копии служебных файлов ───────────────────────────────
       - name: Backup extra files
         if: inputs.with_backup == 'true'
         env:
@@ -118,14 +123,54 @@ jobs:
           STORAGE_REPO: ${{ inputs.storage_repo }}
         run: python3 sync_storage.py backup --source "${{ inputs.source_repo }}"
 
-      # ── Итоговая сводка ────────────────────────────────────────────────────
-      - name: Verify
+      # ── 3) зачистка публичного репо (только то, что уже в storage) ────────
+      - name: Sanitize public repo
+        if: inputs.sanitize == 'true'
+        run: |
+          git config user.name "VIBE-CODE Bot"
+          git config user.email "vibecode-bot@users.noreply.github.com"
+          REMOVED=0
+
+          # транскрипты удаляем ТОЛЬКО если чат уже лежит в storage
+          for d in results/run-*; do
+            [ -d "$d" ] || continue
+            rid=$(basename "$d" | sed 's/^run-//')
+            if [ -f "$STORAGE_DIR/chats/chat-run-$rid.json" ] && [ -f "$d/_reasoning.json" ]; then
+              git rm -q "$d/_reasoning.json"
+              REMOVED=$((REMOVED + 1))
+            fi
+          done
+
+          # случайные файлы ключей, если когда-либо были закоммичены
+          for f in secrets.env keys.env .env vibe/secrets.env keys/secrets.env; do
+            if [ -f "$f" ]; then git rm -q "$f"; REMOVED=$((REMOVED + 1)); fi
+          done
+
+          # защита на будущее
+          touch .gitignore
+          for pat in '*.env' 'secrets.env' 'keys/' 'storage/' 'chats/' '.sync.lock'; do
+            grep -qxF "$pat" .gitignore || echo "$pat" >> .gitignore
+          done
+          git add .gitignore
+
+          if git diff --staged --quiet; then
+            echo "✅ sanitize: nothing to remove"
+          else
+            git commit -m "chore: transcripts & keys moved to private storage; sanitize public repo"
+            git push
+            echo "✅ sanitized: $REMOVED sensitive file(s) removed"
+          fi
+
+      # ── 4) проверка результата ────────────────────────────────────────────
+      - name: Verify storage
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           STORAGE_REPO: ${{ inputs.storage_repo }}
-        run: python3 sync_storage.py status
+        run: |
+          python3 sync_storage.py status
+          python3 sync_storage.py chats list | head -20
 
-      # ── Зачистка временного файла с ключами ────────────────────────────────
+      # ── 5) зачистка временного файла ──────────────────────────────────────
       - name: Cleanup
         if: always()
         run: rm -f /tmp/secrets.env && echo "🧹 ephemeral secrets.env removed"
