@@ -85,7 +85,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-
       # ══ 1. CHECKOUT ══════════════════════════════════════════════════════
       - name: Checkout VIBE-CODE
         uses: actions/checkout@v5
@@ -226,14 +225,9 @@ jobs:
           key: ollama-${{ inputs.model_single }}-v2
           restore-keys: |
             ollama-${{ inputs.model_single }}-
-
       - name: Pull single-agent model
-        if: inputs.agent_mode == 'single' && steps.cache-single.outputs.cache-hit != 'true'
+        if: inputs.agent_mode == 'single'
         run: ollama pull ${{ inputs.model_single }}
-
-      - name: Warm up single-agent model
-        if: inputs.agent_mode == 'single' && steps.cache-single.outputs.cache-hit == 'true'
-        run: echo "hi" | timeout 60 ollama run ${{ inputs.model_single }} || true
 
       # ══ 9. PLANNER MODEL (multi) ═════════════════════════════════════════
       - name: Restore planner model cache
@@ -245,9 +239,8 @@ jobs:
           key: ollama-${{ inputs.model_planner }}-v2
           restore-keys: |
             ollama-${{ inputs.model_planner }}-
-
       - name: Pull planner model
-        if: inputs.agent_mode == 'multi' && steps.cache-planner.outputs.cache-hit != 'true'
+        if: inputs.agent_mode == 'multi'
         run: ollama pull ${{ inputs.model_planner }}
 
       # ══ 10. CODER MODEL (multi) ══════════════════════════════════════════
@@ -258,7 +251,6 @@ jobs:
         with:
           path: /tmp/bonsai-gguf
           key: bonsai-27b-q1-v2
-
       - name: Download Bonsai 27B GGUF
         if: inputs.agent_mode == 'multi' && inputs.model_coder == 'bonsai-27b' && steps.cache-bonsai.outputs.cache-hit != 'true'
         run: |
@@ -273,14 +265,12 @@ jobs:
           )
           print(f'Downloaded: {path}')
           "
-
       - name: Register Bonsai 27B in Ollama
         if: inputs.agent_mode == 'multi' && inputs.model_coder == 'bonsai-27b'
         run: |
           printf 'FROM /tmp/bonsai-gguf/Bonsai-27B-Q1_0.gguf\nSYSTEM "You are an expert software engineer specializing in writing clean, production-ready code."\nPARAMETER temperature 0.2\nPARAMETER top_p 0.9\nPARAMETER num_predict 4096\n' > /tmp/bonsai-modelfile
           ollama create bonsai-27b -f /tmp/bonsai-modelfile
           ollama list
-
       - name: Pull generic coder model
         if: inputs.agent_mode == 'multi' && inputs.model_coder != 'bonsai-27b'
         run: ollama pull ${{ inputs.model_coder }}
@@ -339,19 +329,15 @@ jobs:
         run: |
           git config user.name "VIBE-CODE Bot"
           git config user.email "vibecode-bot@users.noreply.github.com"
-
           FOLDER="results/run-${{ github.run_id }}"
           mkdir -p "$FOLDER"
-
           find /tmp/vibe_output -maxdepth 2 -type f ! -name '_*' -exec cp {} "$FOLDER/" \; 2>/dev/null || true
           for f in _release_notes.md _tools_status.json _progress.json _reasoning.json _budget_report.json; do
             cp "/tmp/vibe_output/$f" "$FOLDER/" 2>/dev/null || true
           done
-
           # ── сайт строит карточку сообщения из этого файла ────────────────
           cat > "$FOLDER/_run_summary.md" << SUMMARY
           # VIBE-CODE Run Summary
-
           | Field | Value |
           |-------|-------|
           | **Run ID** | \`${{ github.run_id }}\` |
@@ -365,15 +351,12 @@ jobs:
           | **Coder** | ${{ inputs.model_coder }} |
           | **Single** | ${{ inputs.model_single }} |
           | **Timestamp** | $(date -u +"%Y-%m-%d %H:%M UTC") |
-
           ## 📦 Download result (ZIP)
           Artifacts available at:
           https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SUMMARY
-
           python3 -m pip install -q pyyaml || true
           python3 update_token_stats.py || echo "⚠️ token stats update failed"
-
           git add "$FOLDER" token_usage.yaml README.md
           if git diff --staged --quiet; then
             echo "Nothing to commit — outputs empty or unchanged"
