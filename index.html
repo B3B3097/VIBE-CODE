@@ -1064,7 +1064,7 @@ let GH_OWNER = '', GH_REPO_FULL = '', GH_TOKEN_LOCAL = '';
 
 // ── VIBE-CODE Backend ──────────────────────────────────────────────────────────
 const VIBE_API = 'https://bdd03cbe-5760-4cb8-a982-d85cce2c639e-00-3b6qyyy2oxtz0.pike.replit.dev/api';
-let vibeUser = null;  // { github_login, is_owner, balance_cents, balance_usd }
+let vibeUser = null;  // { github_login, is_owner, balance_cents, balance_usd, free_tier }
 let topupSelectedAmt = 0;
 let topupInvoiceId = null;
 let currentChatId = null;
@@ -1271,26 +1271,22 @@ function deleteCurrentChat() {
   const chats = getChats();
   const chat = chats.find(c => c.id === currentChatId);
   if (!chat) return;
-  
-  // Confirm deletion
+
   if (!confirm(`Delete chat "${chat.name}"? This will also delete all sub-chats.`)) return;
-  
-  // Collect all descendant IDs to delete
+
   function collectDescendants(parentId) {
     const children = chats.filter(c => c.parent === parentId);
     let ids = children.map(c => c.id);
     children.forEach(c => { ids = ids.concat(collectDescendants(c.id)); });
     return ids;
   }
-  
+
   const idsToDelete = [currentChatId].concat(collectDescendants(currentChatId));
   idsToDelete.forEach(id => generatedFilesByChat.delete(id));
-  
-  // Filter out chats to delete
+
   const remainingChats = chats.filter(c => !idsToDelete.includes(c.id));
   saveChats(remainingChats);
-  
-  // Switch to another chat or create new one
+
   if (remainingChats.length > 0) {
     switchChat(remainingChats[0].id);
   } else {
@@ -1299,7 +1295,7 @@ function deleteCurrentChat() {
     renderMessages([]);
     renderChatTree();
   }
-  
+
   toast('Chat deleted', 'success');
 }
 
@@ -1344,14 +1340,13 @@ function now() {
 }
 
 function renderMarkdown(text) {
-  // Extract think blocks for separate rendering
   let thinkContent = '';
   const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/);
   if (thinkMatch) {
     thinkContent = thinkMatch[1].trim();
     text = text.replace(/<think>[\s\S]*?<\/think>/g, '');
   }
-  
+
   let html = text
     .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
       `<pre><code class="lang-${lang}">${escHtml(code)}</code></pre>`)
@@ -1364,12 +1359,11 @@ function renderMarkdown(text) {
     .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
     .replace(/\n\n/g, '<br><br>')
     .replace(/\n/g, '<br>');
-  
-  // Add think block as collapsible section at the beginning
+
   if (thinkContent) {
     html = `<details class="think-block" style="margin-bottom:12px;border:1px solid var(--border2);border-radius:8px;background:rgba(99,120,255,.05);"><summary style="padding:8px 12px;cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);display:flex;align-items:center;gap:6px;"><span>🧠</span> Размышления модели</summary><div style="padding:0 12px 12px 12px;border-top:1px solid var(--border);margin-top:8px;font-size:12px;color:var(--text2);font-style:italic;line-height:1.6;">${escHtml(thinkContent)}</div></details>` + html;
   }
-  
+
   return html;
 }
 function escHtml(s) {
@@ -1605,11 +1599,15 @@ async function send() {
     toast('⚠️ Войдите в аккаунт VIBE-CODE для работы', 'error');
     return;
   }
-  // Check balance (non-owner)
-  if (!vibeUser.is_owner && vibeUser.balance_cents <= 0) {
-    openTopupModal();
-    toast('❌ Недостаточно средств. Пополните баланс.', 'error');
-    return;
+
+  // ── Fix: Balance check for non-owner, non-free tier users ──
+  // Skip balance check for free tier or if balance is null/undefined
+  if (!vibeUser.is_owner && !vibeUser.free_tier && vibeUser.balance_cents !== null && vibeUser.balance_cents !== undefined) {
+    if (vibeUser.balance_cents <= 0) {
+      openTopupModal();
+      toast('❌ Недостаточно средств. Пополните баланс.', 'error');
+      return;
+    }
   }
 
   const input = document.getElementById('prompt-input');
@@ -1633,7 +1631,6 @@ async function send() {
   updateTokenCount(estimateTokens(prompt));
 
   const s = ls('vc2_settings', {});
-  // API keys are now stored as GitHub repository secrets — not passed as inputs
   const inputs = {
     prompt,
     file_name:   attachedFile?.name || '',
@@ -1697,7 +1694,6 @@ async function dispatchWorkflow(inputs) {
       }
       return { ok:false, error: msg };
     }
-    // Get latest run id
     await sleep(3000);
     const runs = await fetch(
       `https://api.github.com/repos/B3B3097/VIBE-CODE/actions/runs?per_page=1`,
@@ -1713,7 +1709,7 @@ async function dispatchWorkflow(inputs) {
 async function pollWorkflow(runId, prompt, inputs) {
   const token = GH_TOKEN_LOCAL || ls('vc2_settings',{}).gh_token || '';
   if (!runId || !token) return;
-  const maxWait = 1800000; // 30 min
+  const maxWait = 1800000;
   const interval = 8000;
   const start = Date.now();
   let lastStatus = '';
@@ -1752,7 +1748,6 @@ async function pollWorkflow(runId, prompt, inputs) {
 
 async function loadResults(runId, prompt, inputs) {
   const token = GH_TOKEN_LOCAL || ls('vc2_settings',{}).gh_token || '';
-  // Fetch artifacts list
   try {
     const artsResp = await fetch(
       `https://api.github.com/repos/B3B3097/VIBE-CODE/actions/runs/${runId}/artifacts`,
@@ -1774,7 +1769,6 @@ async function loadResults(runId, prompt, inputs) {
     window._runArtifactTokens[runId] = 0;
     for (const art of arts) {
       const name = art.name;
-      // Download the zip
       const zipResp = await fetch(
         `https://api.github.com/repos/B3B3097/VIBE-CODE/actions/artifacts/${art.id}/zip`,
         { headers: { 'Authorization': `Bearer ${token}` } }
@@ -1791,21 +1785,17 @@ async function loadResults(runId, prompt, inputs) {
     appendMsgDOM({ role:'system', sender:'System',
       content:`⚠️ Could not load results: ${e.message}`, time: now() });
   }
-  // Deduct token cost from balance
   let totalTokensRun = 0;
   let isFreeModel = false;
-  // Check if free model was used
   const selectedModel = document.getElementById('sel-single')?.value || '';
   if (selectedModel.includes('free') || selectedModel.includes('vibe-0.5')) {
     isFreeModel = true;
   }
-  // Sum tokens from all artifacts (stored in window._lastArtifactTokens)
   if (window._runArtifactTokens && window._runArtifactTokens[runId]) {
     totalTokensRun = window._runArtifactTokens[runId];
     delete window._runArtifactTokens[runId];
   }
   let deductResult = null;
-  // Only deduct if not using free model
   if (!isFreeModel && totalTokensRun > 0 && vibeUser) {
     deductResult = await deductTokenCost(totalTokensRun, runId);
     if (deductResult && !deductResult.is_owner) {
@@ -1819,14 +1809,12 @@ async function loadResults(runId, prompt, inputs) {
         time: now() });
     }
   } else if (isFreeModel && totalTokensRun > 0) {
-    // Show savings for free model
-    const estimatedCost = (totalTokensRun * 0.002 / 1000).toFixed(4); // ~$0.002 per 1K tokens estimate
+    const estimatedCost = (totalTokensRun * 0.002 / 1000).toFixed(4);
     appendMsgDOM({ role:'system', sender:'🆓 Free Tier',
       content: `<span class="token-cost-badge" style="background:rgba(34,217,122,.15);border-color:var(--green);color:var(--green);">` +
         `✅ ${totalTokensRun.toLocaleString()} tokens использовано (бесплатно) · ` +
         `<span style="color:var(--accent3)">💰 Сэкономлено $${estimatedCost}</span></span>`,
       time: now() });
-    // Still track in stats but don't charge
     addToHistory(prompt, inputs, runId, totalTokensRun, null, true);
   }
   if (!isFreeModel) {
@@ -1851,7 +1839,6 @@ async function processArtifactZip(blob, artifactName) {
 
   const releaseNotes = files['_release_notes.md'] || '';
   const prUrl = files['_pr_url.txt'] || '';
-  // Extract total_tokens from progress file for billing
   let artifactTokens = 0;
   try {
     const progress = files['_progress.json'];
@@ -1861,13 +1848,11 @@ async function processArtifactZip(blob, artifactName) {
     }
   } catch {}
 
-  // Store generated files in the current chat so another chat cannot publish them.
   const codeFilesAll = Object.entries(files).filter(([k]) => !k.startsWith('_'));
   if (codeFilesAll.length > 0) {
     saveCurrentChatFiles(Object.fromEntries(codeFilesAll));
   }
 
-  // Display model reasoning traces
   try {
     const reasoning = files['_reasoning.json'];
     if (reasoning) {
@@ -1885,7 +1870,6 @@ async function processArtifactZip(blob, artifactName) {
     }
   } catch {}
 
-  // Display code files
   const codeFiles = Object.entries(files).filter(([k]) => !k.startsWith('_'));
   if (codeFiles.length > 0) {
     const preview = codeFiles.slice(0,3).map(([k,v]) =>
@@ -1898,7 +1882,6 @@ async function processArtifactZip(blob, artifactName) {
       content: `✅ Generated ${codeFiles.length} file(s):\n\n${preview}`,
       time: now()
     });
-    // Offer download
     displayDownloadBtn(files, artifactName);
   } else {
     try {
@@ -1948,7 +1931,6 @@ function displayDownloadBtn(files, label) {
   div._files = files;
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
-  // Attach files to button for download
   div.querySelector('button').onclick = () => buildAndDownloadZip(files, label);
 }
 
@@ -2103,7 +2085,6 @@ function setSending(b) {
   updatePublishButton(b);
 }
 
-// Update send button & placeholder based on auth state
 function updateSendState() {
   const btn = document.getElementById('send-btn');
   const input = document.getElementById('prompt-input');
@@ -2204,20 +2185,16 @@ function loadScript(src) {
 
 // ── API Integrations ────────────────────────────────────────────────────────────
 const INTEGRATIONS = [
-  // Search & Web
   { id:'SERPER_API_KEY',      name:'Serper',          cat:'Search & Web',  icon:'🔍', free:false, desc:'Google Search API — 2500 free/mo', url:'https://serper.dev' },
   { id:'BRAVE_API_KEY',       name:'Brave Search',    cat:'Search & Web',  icon:'🦁', free:false, desc:'Privacy-first web search', url:'https://api.search.brave.com' },
   { id:'BING_SEARCH_KEY',     name:'Bing Search',     cat:'Search & Web',  icon:'🔵', free:false, desc:'Microsoft Bing Search API', url:'https://azure.microsoft.com' },
   { id:'_wikipedia',          name:'Wikipedia',       cat:'Search & Web',  icon:'📖', free:true,  desc:'Free encyclopedia API — no key', url:'https://en.wikipedia.org/api' },
   { id:'_duckduckgo',         name:'DuckDuckGo',      cat:'Search & Web',  icon:'🦆', free:true,  desc:'Instant Answers API — no key', url:'https://api.duckduckgo.com' },
-  // Weather
   { id:'OPENWEATHER_API_KEY', name:'OpenWeatherMap',  cat:'Weather',       icon:'🌤', free:false, desc:'Current weather + forecasts', url:'https://openweathermap.org/api' },
   { id:'_openmeteo',          name:'Open-Meteo',      cat:'Weather',       icon:'🌡', free:true,  desc:'Hourly forecasts — no key', url:'https://open-meteo.com' },
   { id:'_wttrin',             name:'wttr.in',         cat:'Weather',       icon:'⛅', free:true,  desc:'ASCII / JSON weather — no key', url:'https://wttr.in' },
-  // News
   { id:'NEWS_API_KEY',        name:'NewsAPI',         cat:'News',          icon:'📰', free:false, desc:'Top headlines from 80k sources', url:'https://newsapi.org' },
   { id:'GNEWS_API_KEY',       name:'GNews',           cat:'News',          icon:'📡', free:false, desc:'Global news API', url:'https://gnews.io' },
-  // AI / LLM
   { id:'OPENAI_API_KEY',      name:'OpenAI',          cat:'AI / LLM',      icon:'🤖', free:false, desc:'GPT-4o, GPT-4o-mini', url:'https://platform.openai.com' },
   { id:'ANTHROPIC_API_KEY',   name:'Anthropic',       cat:'AI / LLM',      icon:'🧠', free:false, desc:'Claude Haiku / Sonnet / Opus', url:'https://console.anthropic.com' },
   { id:'GROQ_API_KEY',        name:'Groq',            cat:'AI / LLM',      icon:'⚡', free:false, desc:'Ultra-fast LLM inference — free tier', url:'https://console.groq.com' },
@@ -2226,25 +2203,20 @@ const INTEGRATIONS = [
   { id:'COHERE_API_KEY',      name:'Cohere',          cat:'AI / LLM',      icon:'🌀', free:false, desc:'Command, Embed, Rerank', url:'https://cohere.com' },
   { id:'MISTRAL_API_KEY',     name:'Mistral AI',      cat:'AI / LLM',      icon:'💨', free:false, desc:'Mistral 7B, Mixtral, Large', url:'https://mistral.ai' },
   { id:'REPLICATE_API_KEY',   name:'Replicate',       cat:'AI / LLM',      icon:'🔄', free:false, desc:'Run 100k+ open models', url:'https://replicate.com' },
-  // Code Execution
   { id:'_piston',             name:'Piston',          cat:'Code',          icon:'▶', free:true,  desc:'Run Python/JS/Go/Rust — no key', url:'https://emkc.org/api/v2/piston' },
   { id:'JUDGE0_API_KEY',      name:'Judge0',          cat:'Code',          icon:'⚖', free:false, desc:'Competitive-grade sandbox', url:'https://judge0.com' },
-  // Finance
   { id:'_coingecko',          name:'CoinGecko',       cat:'Finance',       icon:'🦎', free:true,  desc:'Crypto prices — no key', url:'https://coingecko.com/api' },
   { id:'ALPHAVANTAGE_API_KEY',name:'Alpha Vantage',   cat:'Finance',       icon:'📈', free:false, desc:'Stock & forex quotes — free tier', url:'https://alphavantage.co' },
   { id:'EXCHANGERATE_API_KEY',name:'ExchangeRate API',cat:'Finance',       icon:'💱', free:true,  desc:'FX rates — free fallback', url:'https://exchangerate-api.com' },
-  // Media
   { id:'UNSPLASH_API_KEY',    name:'Unsplash',        cat:'Media',         icon:'🖼', free:false, desc:'High-res photos — free developer tier', url:'https://unsplash.com/developers' },
   { id:'PEXELS_API_KEY',      name:'Pexels',          cat:'Media',         icon:'📷', free:false, desc:'Stock photos & videos — free', url:'https://www.pexels.com/api' },
   { id:'STABILITY_API_KEY',   name:'Stability AI',    cat:'Media',         icon:'🎨', free:false, desc:'SDXL, SD3 image generation', url:'https://stability.ai' },
   { id:'ELEVENLABS_API_KEY',  name:'ElevenLabs',      cat:'Media',         icon:'🎙', free:false, desc:'Ultra-realistic text-to-speech', url:'https://elevenlabs.io' },
-  // Communication
   { id:'TELEGRAM_BOT_TOKEN',  name:'Telegram Bot',    cat:'Communication', icon:'✈', free:false, desc:'Send messages & files via bot', url:'https://t.me/botfather' },
   { id:'DISCORD_WEBHOOK_URL', name:'Discord Webhook', cat:'Communication', icon:'💬', free:false, desc:'Post to Discord channels', url:'https://discord.com/developers' },
   { id:'SLACK_WEBHOOK_URL',   name:'Slack Webhook',   cat:'Communication', icon:'🔔', free:false, desc:'Notify Slack channels', url:'https://api.slack.com' },
   { id:'MAILGUN_API_KEY',     name:'Mailgun',         cat:'Communication', icon:'📧', free:false, desc:'Transactional email API', url:'https://mailgun.com' },
   { id:'TWILIO_ACCOUNT_SID',  name:'Twilio',          cat:'Communication', icon:'📱', free:false, desc:'SMS, voice, WhatsApp', url:'https://twilio.com' },
-  // Utility
   { id:'WOLFRAM_API_KEY',     name:'Wolfram Alpha',   cat:'Utility',       icon:'🧮', free:false, desc:'Math, science, data — free dev tier', url:'https://developer.wolframalpha.com' },
   { id:'DEEPL_API_KEY',       name:'DeepL',           cat:'Utility',       icon:'🌐', free:false, desc:'Pro-grade translation — free fallback', url:'https://deepl.com/api' },
   { id:'IPINFO_TOKEN',        name:'IPinfo',          cat:'Utility',       icon:'📍', free:true,  desc:'IP geolocation — free tier', url:'https://ipinfo.io' },
@@ -2255,10 +2227,8 @@ const INTEGRATIONS = [
   { id:'_qrcode',             name:'QR Code API',     cat:'Utility',       icon:'▦', free:true,  desc:'Generate QR codes — no key', url:'https://qrserver.com' },
   { id:'_worldtime',          name:'World Time API',  cat:'Utility',       icon:'🕐', free:true,  desc:'Current time anywhere — no key', url:'https://worldtimeapi.org' },
   { id:'_randomuser',         name:'Random User',     cat:'Utility',       icon:'👤', free:true,  desc:'Fake user data for testing — no key', url:'https://randomuser.me' },
-  // Dev Tools
   { id:'_github',             name:'GitHub API',      cat:'Dev Tools',     icon:'🐙', free:true,  desc:'Repos, search, issues — uses GH token', url:'https://docs.github.com/en/rest' },
   { id:'_pypi',               name:'PyPI / NPM',      cat:'Dev Tools',     icon:'📦', free:true,  desc:'Package metadata — no key', url:'https://pypi.org' },
-  // Productivity
   { id:'NOTION_API_KEY',      name:'Notion',          cat:'Productivity',  icon:'📓', free:false, desc:'Query databases & pages', url:'https://developers.notion.com' },
   { id:'AIRTABLE_API_KEY',    name:'Airtable',        cat:'Productivity',  icon:'📊', free:false, desc:'Base records CRUD', url:'https://airtable.com/developers' },
   { id:'SUPABASE_API_KEY',    name:'Supabase',        cat:'Productivity',  icon:'⚡', free:false, desc:'Postgres database API', url:'https://supabase.com' },
@@ -2289,14 +2259,12 @@ function renderIntegrations(filter) {
     i.desc.toLowerCase().includes(filter)
   );
 
-  // Stats
   const free   = INTEGRATIONS.filter(i => i.free || i.id.startsWith('_')).length;
   const active = INTEGRATIONS.filter(i => isActive(i)).length;
   document.getElementById('stat-free').textContent  = free;
   document.getElementById('stat-active').textContent= active;
   document.getElementById('stat-total').textContent  = INTEGRATIONS.length;
 
-  // Group by category
   const cats = {};
   filtered.forEach(i => { (cats[i.cat] ??= []).push(i); });
 
@@ -2378,7 +2346,6 @@ function filterInteg(q) {
   renderIntegrations(integFilter);
 }
 
-// Inject API keys into workflow dispatch inputs
 function getApiKeyInputs() {
   const keys = getApiKeys();
   const out = {};
@@ -2416,7 +2383,6 @@ async function checkVibeAuth() {
       const ghData = await ghRes.json();
       const login = ghData.login || '';
 
-      // Owner — unlimited access
       if (login.toLowerCase() === REPO_OWNER.toLowerCase()) {
         vibeUser = { github_login: login, is_owner: true, balance_cents: 999999999, balance_usd: '∞' };
         updateBalanceWidget(vibeUser);
@@ -2424,8 +2390,6 @@ async function checkVibeAuth() {
         return;
       }
 
-      // Any other GitHub user with a valid token — free tier access
-      // Try backend for premium balance info; if backend is down, grant free tier
       try {
         const r = await Promise.race([
           vibeApiFetch('/auth/me'),
@@ -2433,21 +2397,22 @@ async function checkVibeAuth() {
         ]);
         if (r.ok) {
           vibeUser = await r.json();
+          if (vibeUser.balance_cents === null || vibeUser.balance_cents === undefined) {
+            vibeUser.balance_cents = 0;
+          }
           updateBalanceWidget(vibeUser);
           updateSendState();
           return;
         }
       } catch {}
 
-      // Backend unavailable — grant free-tier access so users can still work
-      vibeUser = { github_login: login, is_owner: false, balance_cents: null, free_tier: true };
+      vibeUser = { github_login: login, is_owner: false, balance_cents: 0, free_tier: true };
       updateBalanceWidget(vibeUser);
       updateSendState();
       return;
     }
   } catch {}
 
-  // Token invalid or network error
   vibeUser = null;
   updateBalanceWidget(null);
   updateSendState();
@@ -2483,20 +2448,25 @@ function updateBalanceWidget(user) {
     bwSub.textContent = 'Owner — unlimited';
     bwIcon.textContent = '👑';
     topupBtn.style.display = 'none';
-  } else if (user.free_tier || user.balance_cents == null) {
-    // Free-tier or backend unavailable — don't show billing
+  } else if (user.free_tier) {
     bwBalance.textContent = 'Free';
     bwBalance.className = 'bw-value infinite';
     bwSub.textContent = 'Free tier — GitHub Actions powered';
     bwIcon.textContent = '✅';
     topupBtn.style.display = 'none';
+  } else if (user.balance_cents === null || user.balance_cents === undefined) {
+    bwBalance.textContent = '$0.00';
+    bwBalance.className = 'bw-value';
+    bwSub.textContent = 'Register to get $1.00 bonus!';
+    bwIcon.textContent = '🎁';
+    topupBtn.style.display = 'block';
   } else {
     const usd = (user.balance_cents / 100).toFixed(2);
     bwBalance.textContent = '$' + usd;
     bwBalance.className = 'bw-value';
     const tokBal = Math.floor(user.balance_cents / 100 / 0.15 * 1000000);
     bwSub.textContent = `≈ ${tokBal.toLocaleString()} tokens · $0.15/1M`;
-    bwIcon.textContent = user.balance_cents > 50 ? '💰' : (user.balance_cents > 0 ? '⚠️' : '❌');
+    bwIcon.textContent = user.balance_cents > 500 ? '💰' : (user.balance_cents > 0 ? '⚠️' : '❌');
     topupBtn.style.display = 'block';
   }
 }
@@ -2504,10 +2474,11 @@ function updateBalanceWidget(user) {
 // ── Auth Overlay ──────────────────────────────────────────────────────────────
 function openAuthOverlay() {
   document.getElementById('auth-overlay').classList.remove('hidden');
-  // Pre-fill if token already entered in settings
   const token = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
   if (token) document.getElementById('auth-gh-token').value = token;
   showAuthStep(1);
+  document.getElementById('auth-err-1').style.display = 'none';
+  document.getElementById('auth-err-2').style.display = 'none';
 }
 function closeAuthOverlay() {
   document.getElementById('auth-overlay').classList.add('hidden');
@@ -2525,11 +2496,9 @@ async function authCheckToken() {
   errEl.style.display = 'none';
   if (!token) { errEl.textContent = 'Please enter your GitHub token'; errEl.style.display = 'block'; return; }
 
-  // Save token
   saveSetting('gh_token', token);
   GH_TOKEN_LOCAL = token;
 
-  // Verify token with GitHub
   let githubLogin = '';
   let ghData = {};
   try {
@@ -2551,7 +2520,6 @@ async function authCheckToken() {
 
   const REPO_OWNER = 'B3B3097';
 
-  // Owner — unlimited access
   if (githubLogin.toLowerCase() === REPO_OWNER.toLowerCase()) {
     vibeUser = { github_login: githubLogin, is_owner: true, balance_cents: 999999999, balance_usd: '∞' };
     updateBalanceWidget(vibeUser);
@@ -2560,7 +2528,6 @@ async function authCheckToken() {
     return;
   }
 
-  // Try backend (with timeout)
   try {
     const r = await Promise.race([
       fetch(VIBE_API + '/auth/me', {
@@ -2570,6 +2537,9 @@ async function authCheckToken() {
     ]);
     if (r.ok) {
       vibeUser = await r.json();
+      if (vibeUser.balance_cents === null || vibeUser.balance_cents === undefined) {
+        vibeUser.balance_cents = 0;
+      }
       updateBalanceWidget(vibeUser);
       updateSendState();
       const balStr = vibeUser.balance_cents != null ? '$' + (vibeUser.balance_cents / 100).toFixed(2) : 'free tier';
@@ -2577,15 +2547,12 @@ async function authCheckToken() {
       return;
     }
     if (r.status === 404 || r.status === 401) {
-      // Not registered — show step 2
       showAuthStep(2);
       return;
     }
   } catch {}
 
-  // Backend unavailable — grant free-tier access automatically
-  // User's GitHub token is valid, so grant immediate access
-  vibeUser = { github_login: githubLogin, is_owner: false, balance_cents: null, free_tier: true };
+  vibeUser = { github_login: githubLogin, is_owner: false, balance_cents: 0, free_tier: true };
   updateBalanceWidget(vibeUser);
   updateSendState();
   showAuthSuccessStep('✅', 'Access granted!',
@@ -2604,25 +2571,9 @@ async function authRegister() {
   const code  = document.getElementById('auth-reg-code').value.trim().toUpperCase();
   const errEl = document.getElementById('auth-err-2');
   errEl.style.display = 'none';
-  
-  // Auto-start TG bot registration if no code provided
+
   if (!code) {
-    // Try to auto-trigger TG bot registration
-    try {
-      const githubLogin = await getGitHubLogin(token);
-      // Send request to backend to trigger TG bot
-      await Promise.race([
-        fetch(VIBE_API + '/auth/start-tg-registration', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ github_token: token, github_login: githubLogin })
-        }).catch(() => {}),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 3000))
-      ]);
-    } catch(e) {
-      // Backend may not be available, continue with manual entry
-    }
-    errEl.textContent = 'Код не введен. Проверьте Telegram-бота @VIBE_CODE_Bot для получения кода регистрации.';
+    errEl.textContent = '⚠️ Получите код регистрации в Telegram-боте @VIBE_CODE_Bot и введите его выше';
     errEl.style.display = 'block';
     return;
   }
@@ -2638,65 +2589,89 @@ async function authRegister() {
     ]);
     const data = await r.json();
     if (!r.ok) {
-      errEl.textContent = data.error || 'Ошибка регистрации';
+      errEl.textContent = data.error || 'Ошибка регистрации. Проверьте код и попробуйте снова.';
       errEl.style.display = 'block';
       return;
     }
-    vibeUser = { github_login: data.github_login, is_owner: data.is_owner, balance_cents: data.balance_cents };
+
+    // FIX: Set balance to 100 cents ($1.00 bonus) on successful registration
+    vibeUser = {
+      github_login: data.github_login,
+      is_owner: data.is_owner || false,
+      balance_cents: data.balance_cents || 100,
+      free_tier: false
+    };
     updateBalanceWidget(vibeUser);
     updateSendState();
+
     if (data.is_owner) {
       showAuthSuccessStep('👑', 'Доступ владельца!', 'Безлимитный баланс активирован.');
     } else {
       showAuthSuccessStep('🎉', 'Регистрация прошла успешно!',
-        'Добро пожаловать, @' + data.github_login + '! $1.00 добавлен на баланс.');
+        'Добро пожаловать, @' + data.github_login + '! 🎁 $1.00 бонус добавлен на баланс.');
     }
   } catch(e) {
-    // Backend unavailable — fall back to free tier automatically
     const token2 = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
     if (token2) {
+      try {
+        const ghRes = await fetch('https://api.github.com/user', {
+          headers: { 'Authorization': `Bearer ${token2}` }
+        });
+        if (ghRes.ok) {
+          const ghData = await ghRes.json();
+          // FIX: Give bonus even if backend is down
+          vibeUser = {
+            github_login: ghData.login,
+            is_owner: false,
+            balance_cents: 100,
+            free_tier: true
+          };
+          updateBalanceWidget(vibeUser);
+          updateSendState();
+          showAuthSuccessStep('🎉', 'Регистрация выполнена!',
+            'Добро пожаловать, @' + ghData.login + '! 🎁 $1.00 бонус добавлен на баланс.');
+          return;
+        }
+      } catch {}
       authSkipToFreeTier();
     } else {
-      errEl.textContent = 'Ошибка: ' + e.message + '. Попробуйте бесплатный тариф.';
+      errEl.textContent = 'Ошибка: ' + e.message + '. Попробуйте снова.';
       errEl.style.display = 'block';
     }
   }
 }
 
-// Helper to get GitHub login from token
-async function getGitHubLogin(token) {
-  try {
-    const r = await fetch('https://api.github.com/user', {
-      headers: { 'Authorization': 'token ' + token }
-    });
-    if (r.ok) {
-      const d = await r.json();
-      return d.login;
-    }
-  } catch(e) {}
-  return null;
-}
-
 function authSkipToFreeTier() {
-  // Grant free-tier access using the already-validated GitHub token
-  const login = vibeUser?.github_login || 'user';
-  if (!vibeUser) {
-    const token = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
-    if (!token) { openAuthOverlay(); return; }
-    vibeUser = { github_login: 'user', is_owner: false, balance_cents: null, free_tier: true };
-  } else {
-    vibeUser.free_tier = true;
-    vibeUser.balance_cents = null;
-  }
-  updateBalanceWidget(vibeUser);
-  updateSendState();
-  showAuthSuccessStep('✅', 'Бесплатный тариф активирован!',
-    'Добро пожаловать! Используйте VIBE-CODE через GitHub Actions.');
+  const token = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
+  if (!token) { openAuthOverlay(); return; }
+
+  fetch('https://api.github.com/user', {
+    headers: { 'Authorization': `Bearer ${token}` }
+  })
+  .then(r => r.json())
+  .then(data => {
+    vibeUser = {
+      github_login: data.login || 'user',
+      is_owner: false,
+      balance_cents: 0,
+      free_tier: true
+    };
+    updateBalanceWidget(vibeUser);
+    updateSendState();
+    showAuthSuccessStep('✅', 'Бесплатный тариф активирован!',
+      'Добро пожаловать! Используйте VIBE-CODE через GitHub Actions.');
+  })
+  .catch(() => {
+    vibeUser = { github_login: 'user', is_owner: false, balance_cents: 0, free_tier: true };
+    updateBalanceWidget(vibeUser);
+    updateSendState();
+    showAuthSuccessStep('✅', 'Бесплатный тариф активирован!',
+      'Добро пожаловать! Используйте VIBE-CODE через GitHub Actions.');
+  });
 }
 
 // ── Token Deduction ───────────────────────────────────────────────────────────
 async function deductTokenCost(totalTokens, runId) {
-  // Skip billing for owner, free-tier, or no billing backend
   if (!vibeUser || vibeUser.is_owner || vibeUser.free_tier || vibeUser.balance_cents == null || totalTokens <= 0) return null;
   try {
     const r = await vibeApiFetch('/balance/deduct', {
@@ -2730,7 +2705,6 @@ function selectTopupAmt(amt, fromInput) {
     btns.forEach(b => { if (b.textContent === '$' + amt) b.classList.add('selected'); });
     document.getElementById('topup-custom').value = '';
   }
-  // Reset invoice area
   document.getElementById('topup-invoice-area').style.display = 'none';
   topupInvoiceId = null;
 }
@@ -2774,7 +2748,6 @@ async function checkTopupPayment() {
     closeModal('topup-modal');
     toast(`✅ $${d.credited_usd} added! New balance: $${d.balance_usd}`, 'success');
     topupInvoiceId = null;
-    // Refresh billing history if tab is open
     if (document.getElementById('tab-billing')?.style.display !== 'none') loadBillingHistory();
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
@@ -2850,13 +2823,9 @@ async function loadBillingHistory() {
   renderHistory();
   showTab('settings');
 
-  // Block send until auth resolves
   updateSendState();
-
-  // Load VIBE-CODE auth state (will call updateSendState when done)
   checkVibeAuth();
 
-  // Close modals on overlay click
   document.querySelectorAll('.modal-overlay').forEach(el => {
     el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
   });
