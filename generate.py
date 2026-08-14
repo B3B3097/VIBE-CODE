@@ -67,7 +67,7 @@ if not FILE_NAME:
         flags=re.IGNORECASE,
     )
     if _filename_match:
-        FILE_NAME = _filename_match.group(1).replace("\\", "/").lstrip("/")
+        FILE_NAME = _filename_match.group(1).replace("", "/").lstrip("/")
 
 MAX_TOKENS     = int(os.getenv("MAX_TOKENS",   "4096"))
 UNCENSORED     = os.getenv("UNCENSORED", "false").lower() in ("true", "1", "yes", "on")
@@ -1117,10 +1117,10 @@ class AgentState(Enum):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 11. GIT INTEGRATION — GitHub API wrapper (Tree API)
+# 11. GIT INTEGRATION — GitHub API wrapper (RELIABLE per-file method)
 # ─────────────────────────────────────────────────────────────────────────────
 class GitIntegration:
-    """Reads repo context, creates bulk commits via Tree API, and opens PRs."""
+    """Reads repo context, creates commits, branches and pull requests."""
 
     def __init__(self, repo: str, token: str):
         self.repo  = repo.strip()
@@ -1155,7 +1155,8 @@ class GitIntegration:
         except Exception as e:
             return {"error": str(e), "code": 0}
 
-    def _raise_api_error(self, action: str, response: dict):
+    @staticmethod
+    def _raise_api_error(action: str, response: dict):
         if response and response.get("error"):
             code = response.get("code", "?")
             raise RuntimeError(f"{action} failed (HTTP {code}): {response['error']}")
@@ -1181,7 +1182,8 @@ class GitIntegration:
         context_parts = [f"# Repository: {self.repo}\n"]
         total = 0
         for f in files:
-            if total >= max_chars: break
+            if total >= max_chars:
+                break
             content = self.get_file(f["path"])
             snippet = content[:3000]
             chunk = f"\n## {f['path']}\n```\n{snippet}\n```\n"
@@ -1194,57 +1196,75 @@ class GitIntegration:
         self._raise_api_error("Get repo info", resp)
         return resp.get("default_branch", "main")
 
-    def commit_files(self, files: dict, message: str, branch: str = "vibe-code/auto") -> list:
-        """Batch commit multiple files in a single API request via Git Trees."""
+    def get_branch_sha(self, branch: str) -> str:
+        resp = self._req(f"/repos/{self.repo}/git/ref/heads/{branch}")
+        self._raise_api_error("Get branch ref", resp)
+        return resp.get("object", {}).get("sha", "")
+
+    def create_branch(self, branch_name: str) -> bool:
+        default = self.get_default_branch()
+        sha = self.get_branch_sha(default)
+        if not sha:
+            raise RuntimeError(f"Cannot resolve HEAD of default branch '{default}'")
+        resp = self._req(f"/repos/{self.repo}/git/refs", "POST", {
+            "ref": f"refs/heads/{branch_name}",
+            "sha": sha,
+        })
+        self._raise_api_error("Create branch", resp)
+        return "ref" in resp
+
+    def get_file_sha(self, path: str, branch: str) -> Optional[str]:
+        resp = self._req(f"/repos/{self.repo}/contents/{path}?ref={branch}")
+        return resp.get("sha") if not resp.get("error") else None
+
+    def commit_file(self, path: str, content: str, message: str, branch: str) -> bool:
+        """Commit single file via Contents API (reliable)."""
+        clean_path = path.strip().lstrip("/")
+        if not clean_path or ".." in clean_path.split("/"):
+            raise ValueError(f"Unsafe generated file path: {path!r}")
+        sha = self.get_file_sha(clean_path, branch)
+        data = {
+            "message": message,
+            "content": base64.b64encode(content.encode()).decode(),
+            "branch":  branch,
+        }
+        if sha:
+            data["sha"] = sha
+        resp = self._req(
+            f"/repos/{self.repo}/contents/{urllib.parse.quote(clean_path)}",
+            "PUT", data)
+        self._raise_api_error(f"Commit {clean_path}", resp)
+        return "commit" in resp
+
+    def commit_files(self, files: dict, message: str,
+                     branch: str = "vibe-code/auto") -> list:
+        """Commit files one-by-one (reliable method, handles existing branches)."""
         if not files:
             raise ValueError("No generated files to commit")
-            
-        print(f"🚀 Batch committing {len(files)} file(s) to {self.repo}...")
-        base_branch = self.get_default_branch()
         
-        # 1. Base branch SHA
-        ref_resp = self._req(f"/repos/{self.repo}/git/ref/heads/{base_branch}")
-        self._raise_api_error("Fetch base branch", ref_resp)
-        base_sha = ref_resp["object"]["sha"]
-
-        # 2. Base tree SHA
-        commit_resp = self._req(f"/repos/{self.repo}/git/commits/{base_sha}")
-        self._raise_api_error("Fetch base commit", commit_resp)
-        base_tree_sha = commit_resp["tree"]["sha"]
-
-        # 3. Create Blobs
-        tree_entries = []
+        # Создаём ветку, игнорируя ошибку если уже существует
+        try:
+            self.create_branch(branch)
+        except RuntimeError as e:
+            if "Reference already exists" in str(e) or "422" in str(e):
+                print(f"⚠️ Branch {branch} already exists, continuing...")
+            else:
+                raise
+        
+        committed = []
         for path, content in files.items():
-            clean_path = path.strip().lstrip("/")
-            blob_resp = self._req(f"/repos/{self.repo}/git/blobs", "POST", {
-                "content": str(content), "encoding": "utf-8"
-            })
-            self._raise_api_error(f"Create blob for {clean_path}", blob_resp)
-            tree_entries.append({
-                "path": clean_path, "mode": "100644", "type": "blob", "sha": blob_resp["sha"]
-            })
-
-        # 4. Create Tree
-        tree_resp = self._req(f"/repos/{self.repo}/git/trees", "POST", {
-            "base_tree": base_tree_sha, "tree": tree_entries
-        })
-        self._raise_api_error("Create git tree", tree_resp)
-
-        # 5. Create Commit
-        new_commit_resp = self._req(f"/repos/{self.repo}/git/commits", "POST", {
-            "message": f"feat(vibe): {message}\n\nGenerated automatically by VIBE-CODE",
-            "tree": tree_resp["sha"],
-            "parents": [base_sha]
-        })
-        self._raise_api_error("Create commit", new_commit_resp)
-
-        # 6. Create Branch (Ref)
-        ref_create_resp = self._req(f"/repos/{self.repo}/git/refs", "POST", {
-            "ref": f"refs/heads/{branch}", "sha": new_commit_resp["sha"]
-        })
-        self._raise_api_error("Create branch", ref_create_resp)
-
-        return list(files.keys())
+            try:
+                ok = self.commit_file(path, str(content),
+                                      f"feat: {message} [{path}]", branch)
+                if ok:
+                    committed.append(path)
+            except Exception as e:
+                print(f"⚠️ Failed to commit {path}: {e}")
+        
+        if not committed:
+            raise RuntimeError("No files were committed successfully")
+        
+        return committed
 
     def create_pr(self, branch: str, title: str, body: str) -> str:
         default = self.get_default_branch()
@@ -1263,7 +1283,8 @@ class GitIntegration:
         files = resp.get("files", [])
         diff_parts = []
         for f in files[:20]:
-            diff_parts.append(f"### {f['filename']}\n```diff\n{f.get('patch','')}\n```")
+            diff_parts.append(
+                f"### {f['filename']}\n```diff\n{f.get('patch','')}\n```")
         return "\n".join(diff_parts)
 
 
@@ -1368,3 +1389,525 @@ class CoderAgent:
 For each file, output:
 ```filename: path/to/file.ext
 [complete file content here]
+```
+
+Write complete files, not fragments. Be precise and thorough.""" \
+        + (UNCENSORED_ADDENDUM if UNCENSORED else "")
+
+    FILE_PATTERN = r'```(?:filename:\s*)?([^\n`]+)\n([\s\S]*?)```'
+
+    def _parse_files(self, raw: str) -> dict:
+        files = {}
+        for match in re.finditer(self.FILE_PATTERN, raw):
+            fname = match.group(1).strip()
+            if fname.startswith("filename:"):
+                fname = fname[9:].strip()
+            files[fname] = match.group(2)
+        return files
+
+    def implement(self, plan: dict, repo_ctx: str = "", tool_ctx: str = "",
+                  feedback: str = "", tokens_budget: int = None) -> dict:
+        write_progress("running",
+                       f"⚡ Coder implementing: {plan.get('summary','...')}",
+                       agent="coder")
+        steps_txt = json.dumps(plan.get("steps", []), indent=2)
+        user_msg = (
+            f"EXECUTION PLAN:\n{steps_txt}\n\n"
+            + (f"INTERNET CONTEXT:\n{tool_ctx[:5000]}\n\n" if tool_ctx else "")
+            + (f"REPOSITORY CONTEXT:\n{repo_ctx[:25000]}\n\n"
+               if repo_ctx else "")
+            + (f"REVIEWER FEEDBACK (please fix):\n{feedback}\n\n"
+               if feedback else "")
+            + "Implement all steps. Output complete files using the "
+              "```filename: ... ``` format."
+        )
+        messages = [
+            {"role": "system", "content": self.SYSTEM},
+            {"role": "user",   "content": user_msg},
+        ]
+        raw, tokens = call_model(messages, MODEL_CODER,
+                                 tokens_budget or MAX_TOKENS)
+        files = self._parse_files(raw)
+        if not files:
+            fname = plan.get("steps", [{}])[0].get("file",
+                                                   FILE_NAME or "output.txt")
+            files[fname] = raw
+        return {"files": files, "_tokens": tokens, "_raw": raw}
+
+    def refactor(self, files: dict, feedback: str,
+                 tokens_budget: int = None) -> dict:
+        write_progress("running", "🔧 Coder refactoring based on review...",
+                       agent="coder")
+        files_txt = "\n\n".join(
+            f"```filename: {k}\n{v}\n```" for k, v in files.items())
+        messages = [
+            {"role": "system", "content": self.SYSTEM},
+            {"role": "user", "content":
+             f"REFACTOR REQUEST:\n{feedback}\n\nCURRENT CODE:\n{files_txt}\n\n"
+             "Apply all requested changes and output the complete "
+             "updated files."},
+        ]
+        raw, tokens = call_model(messages, MODEL_CODER,
+                                 tokens_budget or MAX_TOKENS)
+        files_out = self._parse_files(raw)
+        if not files_out:
+            files_out = files
+        return {"files": files_out, "_tokens": tokens}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 14. RELEASE NOTES GENERATOR
+# ─────────────────────────────────────────────────────────────────────────────
+class ReleaseNotesGenerator:
+    SYSTEM = """You are a technical writer specializing in release notes.
+Generate clear, developer-friendly release notes from the provided diff
+and context.
+
+Output format (Markdown):
+## 🚀 What's New
+- [feature descriptions]
+
+## 🔧 Improvements
+- [improvements]
+
+## 🐛 Bug Fixes
+- [fixes]
+
+## ⚠️ Breaking Changes
+- [if any, otherwise omit]
+
+Keep each item concise. Focus on user/developer impact."""
+
+    def generate(self, diff: str, task: str, files_changed: list,
+                 tokens_budget: int = 1024) -> str:
+        write_progress("running", "📝 Generating release notes...",
+                       agent="release-notes")
+        messages = [
+            {"role": "system", "content": self.SYSTEM},
+            {"role": "user", "content": (
+                f"TASK DESCRIPTION:\n{task}\n\n"
+                f"FILES CHANGED:\n"
+                + "\n".join(f"- {f}" for f in files_changed)
+                + (f"\n\nDIFF:\n{diff[:8000]}" if diff else "")
+                + "\n\nGenerate the release notes."
+            )},
+        ]
+        model = MODEL_SINGLE if AGENT_MODE == "single" else MODEL_PLANNER
+        raw, _ = call_model(messages, model, tokens_budget)
+        return raw
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 15. ORCHESTRATOR — multi-agent state machine
+# ─────────────────────────────────────────────────────────────────────────────
+class Orchestrator:
+    """
+    FETCHING → PLANNING → CODING → REVIEWING → (refactor loop)
+               → COMMITTING → RELEASING → DONE
+    """
+    MAX_REVIEW_LOOPS = 2
+
+    def __init__(self):
+        self.state    = AgentState.IDLE
+        self.planner  = PlannerAgent()
+        self.coder    = CoderAgent()
+        self.relnotes = ReleaseNotesGenerator()
+        self.router   = ToolRouter()
+        self.git      = GitIntegration(TARGET_REPO, GH_TOKEN) \
+                        if TARGET_REPO and GH_TOKEN else None
+        self.total_tokens = 0
+        self.reasoning    = []
+
+    def _transition(self, new_state: AgentState, msg: str):
+        self.state = new_state
+        write_progress(new_state.value, msg, self.total_tokens,
+                       extra={"state": new_state.value})
+
+    def run(self, task: str) -> dict:
+        start_time = time.time()
+        result = {"task": task, "files": {}, "pr_url": "",
+                  "release_notes": ""}
+
+        # ── 1. Internet context ──────────────────────────────────────────────
+        self._transition(AgentState.FETCHING, "🌐 Fetching internet context...")
+        tool_ctx = self.router.analyze_and_fetch(task, 512)
+
+        # ── 2. Repo context ──────────────────────────────────────────────────
+        repo_ctx = REPO_CONTEXT
+        if not repo_ctx and self.git:
+            self._transition(AgentState.PLANNING,
+                             "📡 Fetching repository context...")
+            repo_ctx = self.git.get_repo_context()
+
+        # ── 3. Planning ──────────────────────────────────────────────────────
+        self._transition(AgentState.PLANNING,
+                         f"📐 Planner decomposing: {task[:60]}...")
+        budget_per_call = (TOTAL_BUDGET // 4) if TOTAL_BUDGET else MAX_TOKENS
+        plan = self.planner.decompose(task, repo_ctx, tool_ctx,
+                                      budget_per_call)
+        self.total_tokens += plan.get("_tokens", 0)
+
+        step_labels = [str(s.get("description", "")).strip()
+                       for s in plan.get("steps", []) if s.get("description")]
+        plan_summary = plan.get("summary", task)
+        if step_labels:
+            plan_summary += ": " + "; ".join(step_labels[:6])
+        self.reasoning.append({"agent": "planner", "phase": "planning",
+                               "content": plan_summary[:1200],
+                               "tokens": plan.get("_tokens", 0)})
+        write_progress("planning",
+                       f"✅ Plan ready: {len(plan.get('steps', []))} steps",
+                       self.total_tokens, "planner",
+                       extra={"plan": plan.get("summary", "")})
+
+        # ── 4. Coding ────────────────────────────────────────────────────────
+        self._transition(AgentState.CODING, "⚡ Coder implementing plan...")
+        code_budget = (TOTAL_BUDGET // 2) if TOTAL_BUDGET else MAX_TOKENS
+        code_result = self.coder.implement(plan, repo_ctx, tool_ctx, "",
+                                           code_budget)
+        self.total_tokens += code_result.get("_tokens", 0)
+        files = code_result.get("files", {})
+        self.reasoning.append({"agent": "coder", "phase": "coding",
+                               "content": f"Generated {len(files)} file(s): "
+                                          + ", ".join(list(files)[:10]),
+                               "tokens": code_result.get("_tokens", 0)})
+
+        # ── 5. Review loop ───────────────────────────────────────────────────
+        for loop in range(self.MAX_REVIEW_LOOPS):
+            self._transition(AgentState.REVIEWING,
+                             f"🔍 Planner reviewing (pass {loop + 1})...")
+            review = self.planner.review(task, files, budget_per_call)
+            self.total_tokens += review.get("_tokens", 0)
+            self.reasoning.append({
+                "agent": "planner", "phase": "review",
+                "content": review.get("feedback", review.get("_raw", "")),
+                "tokens": review.get("_tokens", 0),
+                "approved": review.get("approved"),
+                "score": review.get("score"),
+            })
+
+            if review.get("approved", True) or review.get("score", 10) >= 7:
+                write_progress("reviewing",
+                               f"✅ Code approved "
+                               f"(score: {review.get('score','-')})",
+                               self.total_tokens, "planner")
+                break
+
+            self._transition(AgentState.CODING,
+                             f"🔧 Coder refactoring: "
+                             f"{review.get('feedback','')[:60]}")
+            refactor = self.coder.refactor(files,
+                                           review.get("feedback", ""),
+                                           code_budget)
+            self.total_tokens += refactor.get("_tokens", 0)
+            self.reasoning.append({
+                "agent": "coder", "phase": "refactor",
+                "content": "Applied reviewer feedback: "
+                           + review.get("feedback", "")[:1000],
+                "tokens": refactor.get("_tokens", 0),
+            })
+            files = refactor.get("files", files)
+
+        result["files"] = files
+
+        # ── 6. Commit / PR ───────────────────────────────────────────────────
+        can_auto_pr = AUTO_PR and bool(TARGET_REPO) and bool(GH_TOKEN)
+        if AUTO_PR and not TARGET_REPO:
+            print("⚠️ Auto PR skipped: TARGET_REPO is empty")
+        elif AUTO_PR and not GH_TOKEN:
+            print("⚠️ Auto PR skipped: GitHub token is unavailable")
+
+        diff = ""
+        if self.git and can_auto_pr:
+            self._transition(AgentState.COMMITTING,
+                             f"🚀 Committing {len(files)} file(s) to GitHub...")
+            ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+            branch = f"vibe-code/{ts}"
+            committed = self.git.commit_files(
+                files, plan.get("summary", task), branch)
+            if not committed:
+                raise RuntimeError(
+                    "Auto PR failed: GitHub did not accept any files")
+            write_progress("committing",
+                           f"✅ Committed: {', '.join(committed[:3])}",
+                           self.total_tokens, "git")
+            pr_url = self.git.create_pr(
+                branch,
+                f"feat: {plan.get('summary', task)[:72]}",
+                f"Generated by VIBE-CODE Multi-Agent\n\n"
+                f"Task: {task}\n\nFiles: {', '.join(committed)}",
+            )
+            if not pr_url:
+                raise RuntimeError("Auto PR failed: no PR URL returned")
+            result["pr_url"] = pr_url
+            write_progress("committing", f"🔗 PR: {pr_url}",
+                           self.total_tokens, "git",
+                           extra={"pr_url": pr_url})
+            diff = self.git.get_diff(branch)
+
+        # ── 7. Release notes ─────────────────────────────────────────────────
+        if AUTO_NOTES:
+            self._transition(AgentState.RELEASING,
+                             "📝 Generating release notes...")
+            notes = self.relnotes.generate(diff, task, list(files.keys()),
+                                           1024)
+            result["release_notes"] = notes
+            write_progress("releasing", "✅ Release notes ready",
+                           self.total_tokens, "release-notes",
+                           extra={"release_notes": notes})
+
+        # ── 8. Done ──────────────────────────────────────────────────────────
+        elapsed = round(time.time() - start_time, 1)
+        self._transition(AgentState.DONE,
+                         f"🎉 Done in {elapsed}s | {self.total_tokens} tokens")
+        result["elapsed"]      = elapsed
+        result["total_tokens"] = self.total_tokens
+        result["reasoning"]    = self.reasoning
+        return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 16. OUTPUT SAVING & REPORTS
+# ─────────────────────────────────────────────────────────────────────────────
+def save_outputs(files: dict, release_notes: str = "", pr_url: str = "",
+                 reasoning: list = None):
+    """Write generated files + metadata to OUTPUT_DIR (public-safe only)."""
+    for fname, content in files.items():
+        safe = safe_filename(fname)
+        out_path = os.path.join(OUTPUT_DIR, safe)
+        parent = os.path.dirname(out_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(out_path, "w") as f:
+            f.write(content)
+        print(f"📄 {out_path}")
+
+    if release_notes:
+        with open(f"{OUTPUT_DIR}/_release_notes.md", "w") as f:
+            f.write(release_notes)
+    if pr_url:
+        with open(f"{OUTPUT_DIR}/_pr_url.txt", "w") as f:
+            f.write(pr_url)
+
+    toolkit = APIToolkit()
+    tools = toolkit.available_tools()
+    with open(f"{OUTPUT_DIR}/_tools_status.json", "w") as f:
+        json.dump(tools, f, indent=2)
+
+    if reasoning:
+        with open(f"{OUTPUT_DIR}/_reasoning.json", "w") as f:
+            json.dump(reasoning, f, indent=2, ensure_ascii=False)
+
+
+def write_budget_report(total_tokens: int, elapsed: float):
+    """Persist a small token-budget report (no secrets, public-safe)."""
+    report = {
+        "total_tokens": total_tokens,
+        "budget":       TOTAL_BUDGET,
+        "elapsed_sec":  elapsed,
+        "models": {
+            "planner": MODEL_PLANNER,
+            "coder":   MODEL_CODER,
+            "single":  MODEL_SINGLE,
+        },
+        "agent_mode": AGENT_MODE,
+        "timestamp":  now_iso(),
+    }
+    try:
+        with open(f"{OUTPUT_DIR}/_budget_report.json", "w") as f:
+            json.dump(report, f, indent=2)
+    except Exception as exc:
+        print(f"⚠️ budget report failed: {exc}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 17. SINGLE-AGENT LEGACY PATH
+# ─────────────────────────────────────────────────────────────────────────────
+def run_single_agent() -> dict:
+    print(f"🤖 Single-agent mode | Model: {MODEL_SINGLE}")
+    print(f"📝 Task: {PROMPT}")
+
+    if not ollama_ready(90):
+        print("❌ Ollama not ready")
+        sys.exit(1)
+    print("✅ Ollama ready")
+
+    reasoning = []
+    write_progress("fetching", "Fetching optional internet context", 0,
+                   agent="tools", extra={"state": "fetching"})
+    tool_ctx = ""
+    if ENABLE_TOOLS:
+        router = ToolRouter()
+        tool_ctx = router.analyze_and_fetch(PROMPT, 512)
+    reasoning.append({
+        "agent": "tools", "phase": "fetching",
+        "content": ("Internet context collected" if tool_ctx
+                    else "No external context was needed"),
+        "tokens": 0,
+    })
+
+    budget_left  = TOTAL_BUDGET or (MAX_TOKENS * ITERATIONS)
+    total_tokens = 0
+    output_parts = []
+
+    system_text = ("You are an expert software engineer. Write complete, "
+                   "production-ready code."
+                   + (UNCENSORED_ADDENDUM if UNCENSORED else ""))
+    if PARENT_CONTEXT:
+        system_text += f"\n\nPARENT CHAT CONTEXT:\n{PARENT_CONTEXT}"
+    if REPO_CONTEXT:
+        system_text += f"\n\nREPO CONTEXT:\n{REPO_CONTEXT[:20000]}"
+    if tool_ctx:
+        system_text += f"\n\n{tool_ctx[:6000]}"
+
+    messages = [{"role": "system", "content": system_text}]
+
+    user_msg = PROMPT
+    if ATTACHED_CONTENT:
+        ext = os.path.splitext(FILE_NAME)[1].lstrip(".") or "txt"
+        user_msg = (f"```{ext}\n# {FILE_NAME}\n"
+                    f"{ATTACHED_CONTENT[:60000]}\n```\n\n" + PROMPT)
+    messages.append({"role": "user", "content": user_msg})
+
+    for i in range(max(1, ITERATIONS)):
+        write_progress("coding",
+                       f"Generating iteration {i + 1}/{ITERATIONS}",
+                       total_tokens, agent="coder",
+                       extra={"state": "coding", "iteration": i + 1})
+        budget = min(MAX_TOKENS, budget_left)
+        raw, used = call_model(messages, MODEL_SINGLE, budget)
+        total_tokens += used
+        budget_left  -= used
+        output_parts.append(raw)
+        reasoning.append({
+            "agent": "coder", "phase": f"iteration-{i + 1}",
+            "content": f"Generated iteration {i + 1}; "
+                       f"output length: {len(raw)} characters",
+            "tokens": used,
+        })
+        messages.append({"role": "assistant", "content": raw})
+        if budget_left <= 0:
+            break
+        if ITERATIONS > 1:
+            cont = {"role": "user", "content": "Continue."}
+            messages.append(cont)
+
+    output = "\n\n".join(output_parts)
+    files  = {FILE_NAME or "output.txt": output}
+    notes  = ""
+    pr_url = ""
+
+    git = GitIntegration(TARGET_REPO, GH_TOKEN) \
+        if TARGET_REPO and GH_TOKEN else None
+    can_auto_pr = AUTO_PR and bool(TARGET_REPO) and bool(GH_TOKEN)
+    if AUTO_PR and not TARGET_REPO:
+        print("⚠️ Auto PR skipped: TARGET_REPO is empty")
+    elif AUTO_PR and not GH_TOKEN:
+        print("⚠️ Auto PR skipped: GitHub token is unavailable")
+
+    if git and can_auto_pr:
+        write_progress("committing",
+                       f"Publishing {len(files)} file(s) to {TARGET_REPO}",
+                       total_tokens, agent="git",
+                       extra={"state": "committing"})
+        branch = f"vibe-code/{datetime.datetime.utcnow():%Y%m%d-%H%M%S}"
+        committed = git.commit_files(files, PROMPT[:72] or "VIBE-CODE output",
+                                     branch)
+        if not committed:
+            raise RuntimeError("Auto PR failed: no files accepted")
+        pr_url = git.create_pr(
+            branch,
+            f"feat: {(PROMPT or 'VIBE-CODE changes')[:66]}",
+            "Generated by VIBE-CODE\n\n"
+            + f"Task: {PROMPT}\n\nFiles: {', '.join(committed)}",
+        )
+        if not pr_url:
+            raise RuntimeError("Auto PR failed: no PR URL returned")
+        reasoning.append({
+            "agent": "git", "phase": "publishing",
+            "content": f"Committed {len(committed)} file(s) "
+                       f"and created a pull request",
+            "tokens": 0,
+        })
+
+    if AUTO_NOTES:
+        write_progress("releasing", "Generating release notes",
+                       total_tokens, agent="release-notes",
+                       extra={"state": "releasing"})
+        gen = ReleaseNotesGenerator()
+        notes = gen.generate("", PROMPT, list(files.keys()))
+
+    save_outputs(files, notes, pr_url, reasoning)
+    write_budget_report(total_tokens, 0.0)
+    write_progress("done", f"✅ Done | {total_tokens} tokens", total_tokens,
+                   extra={"release_notes": notes, "pr_url": pr_url,
+                          "reasoning_steps": len(reasoning)})
+    return {"files": files, "total_tokens": total_tokens,
+            "reasoning": reasoning, "pr_url": pr_url,
+            "release_notes": notes}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 18. ENTRY POINT
+# ─────────────────────────────────────────────────────────────────────────────
+def main():
+    banner(f"VIBE-CODE v3  |  mode={AGENT_MODE}  |  {now_iso()[:16]}")
+
+    if not PROMPT:
+        print("❌ No PROMPT provided")
+        sys.exit(1)
+
+    toolkit = APIToolkit()
+    active  = [t["name"] for t in toolkit.available_tools() if t["active"]]
+    print(f"🔌 Active tools ({len(active)}): "
+          f"{', '.join(active[:8])}{'...' if len(active) > 8 else ''}")
+    print(f"🔐 Keys from storage: {_KEYS_FROM_STORAGE}")
+    if STORAGE_DIR:
+        print(f"🗄  Storage dir: {STORAGE_DIR} → {STORAGE_REPO}")
+    if CHAT_PARENT:
+        print(f"🧬 Parent chat: {CHAT_PARENT}")
+    print()
+
+    if not ollama_ready(120):
+        print("❌ Ollama not ready after 2 min")
+        sys.exit(1)
+    print("✅ Ollama ready\n")
+
+    start = time.time()
+
+    if AGENT_MODE == "multi":
+        print(f"🧠 Planner : {MODEL_PLANNER}")
+        print(f"⚡ Coder   : {MODEL_CODER}")
+        if TARGET_REPO:
+            print(f"📂 Repo    : {TARGET_REPO}")
+        print()
+        orc = Orchestrator()
+        result = orc.run(PROMPT)
+        save_outputs(result.get("files", {}),
+                     result.get("release_notes", ""),
+                     result.get("pr_url", ""),
+                     result.get("reasoning", []))
+        write_budget_report(result.get("total_tokens", 0),
+                            result.get("elapsed", 0))
+    else:
+        result = run_single_agent()
+
+    # ── Private chat transcript → storage (pushed by sync_storage.py) ───────
+    chat_path = save_chat()
+    if chat_path:
+        print(f"💬 Chat saved → {chat_path} "
+              f"(will be pushed to {STORAGE_REPO})")
+
+    print(f"⏱  Total elapsed: {round(time.time() - start, 1)}s")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n🛑 Interrupted — chat will still be saved (atexit)")
+        sys.exit(130)
+    except Exception as exc:
+        print(f"💥 Fatal error: {exc}")
+        traceback.print_exc()
+        sys.exit(1)
