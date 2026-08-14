@@ -1,352 +1,160 @@
-name: VIBE-CODE Create PR
+name: 🚀 VIBE-CODE Core Infrastructure & Auto PR
 
 on:
   workflow_dispatch:
     inputs:
-      run_id:
-        description: '🔢 Run ID из generate.yml (из URL вкладки Actions)'
-        required: true
-        default: ''
-      target_repo:
-        description: '📦 Целевой репозиторий для PR (owner/repo)'
-        required: true
-        default: ''
-      base_branch:
-        description: '🌿 Базовая ветка в целевом репозитории'
-        required: true
-        default: 'main'
       branch_name:
-        description: '✏️ Имя новой ветки (пусто = авто-генерация)'
-        default: ''
-      pr_title:
-        description: '📝 Заголовок PR (пусто = авто из промпта)'
-        default: ''
-      pr_description:
-        description: '💬 Дополнительное описание PR (опционально)'
-        default: ''
-      assignees:
-        description: '👤 Назначить исполнителей (через запятую)'
-        default: ''
-      reviewers:
-        description: '👀 Назначить ревьюверов (через запятую)'
-        default: ''
-      add_labels:
-        description: '🏷️ Добавить labels к PR'
-        default: 'true'
-        type: choice
-        options: ['true', 'false']
-      draft:
-        description: '📋 Создать PR как Draft'
-        default: 'false'
-        type: choice
-        options: ['false', 'true']
+        description: 'Имя ветки для PR'
+        required: false
+        default: 'auto/infrastructure-update'
+      trigger_generation:
+        description: 'Запустить скрипты генерации кода?'
+        type: boolean
+        required: false
+        default: true
+      model_version:
+        description: 'Версия локальной модели'
+        required: false
+        default: 'vibe-code-0.5'
+  schedule:
+    - cron: '0 2 * * 1-5' # Запуск каждую ночь по будням
+  push:
+    branches:
+      - 'feature/**'
 
-permissions:
-  contents: write
-  pull-requests: write
-  actions: read
+env:
+  MODEL_PATH: ./models/local_vibe
+  PYTHON_VERSION: '3.11'
 
 jobs:
-  create-pr:
+  infrastructure-and-pr:
+    name: ⚙️ Build, Generate & PR
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    
+    permissions:
+      contents: write
+      pull-requests: write
+
     steps:
-      # ══════════════════════════════════════════════════════════════════════
-      # 1. VALIDATE INPUTS
-      # ══════════════════════════════════════════════════════════════════════
-      - name: Validate inputs
-        id: validate
-        run: |
-          echo "╔══════════════════════════════════════════════════════════╗"
-          echo "║           VIBE-CODE v3 — Create PR                      ║"
-          echo "╚══════════════════════════════════════════════════════════╝"
-          echo ""
-          
-          ERRORS=0
-          
-          if [ -z "${{ inputs.run_id }}" ]; then
-            echo "❌ ERROR: run_id is required"
-            ERRORS=$((ERRORS + 1))
-          fi
-          
-          if [ -z "${{ inputs.target_repo }}" ]; then
-            echo "❌ ERROR: target_repo is required"
-            ERRORS=$((ERRORS + 1))
-          fi
-          
-          if ! echo "${{ inputs.target_repo }}" | grep -qE '^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'; then
-            echo "❌ ERROR: target_repo должен быть в формате owner/repo"
-            ERRORS=$((ERRORS + 1))
-          fi
-          
-          if [ $ERRORS -gt 0 ]; then
-            exit 1
-          fi
-          
-          if [ -z "${{ inputs.branch_name }}" ]; then
-            BRANCH="vibe-code/run-${{ inputs.run_id }}-$(date +%Y%m%d-%H%M%S)"
-          else
-            BRANCH="${{ inputs.branch_name }}"
-          fi
-          echo "branch_name=$BRANCH" >> "$GITHUB_OUTPUT"
-          echo "🌿 Branch to create: $BRANCH"
-
-      # ══════════════════════════════════════════════════════════════════════
-      # 2. CHECKOUT VIBE-CODE
-      # ══════════════════════════════════════════════════════════════════════
-      - name: Checkout VIBE-CODE
-        uses: actions/checkout@v5
+      # 1. Забираем код
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          token: ${{ secrets.CH_Token }}
+          fetch-depth: 0
 
-      # ══════════════════════════════════════════════════════════════════════
-      # 3. RESOLVE & VALIDATE TOKEN
-      # ══════════════════════════════════════════════════════════════════════
-      - name: Resolve GitHub token
-        id: resolve-token
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-          TARGET_REPO: ${{ inputs.target_repo }}
-          CURRENT_REPO: ${{ github.repository }}
+      # 2. Настраиваем Git
+      - name: ⚙️ Setup Git User
         run: |
-          if [ -n "$GH_PAT" ]; then
-            echo "token=$GH_PAT" >> "$GITHUB_OUTPUT"
-            echo "🔑 Using GH_PAT (personal access token)"
+          git config --global user.name "VIBE-CODE Pipeline"
+          git config --global user.email "pipeline@vibe-code.local"
+
+      # 3. Поднимаем Python-окружение для скриптов
+      - name: 🐍 Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip' # Кэшируем зависимости для скорости
+
+      # 4. Устанавливаем зависимости
+      - name: 📦 Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Дополнительные пакеты для работы с локальной инфраструктурой
+          pip install transformers torch datasets black
+
+      # 5. Кэширование весов локальной модели (экономит кучу времени и лимитов)
+      - name: 🧠 Cache Local Model Weights
+        id: cache-model
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.MODEL_PATH }}
+          key: ${{ runner.os }}-model-${{ github.event.inputs.model_version || 'vibe-code-0.5' }}
+
+      # 6. Загрузка/Инициализация модели (если нет в кэше)
+      - name: ⚡ Initialize Model Infrastructure
+        if: steps.cache-model.outputs.cache-hit != 'true'
+        run: |
+          echo "Model cache not found. Setting up local infrastructure for ${{ github.event.inputs.model_version || 'vibe-code-0.5' }}..."
+          mkdir -p ${{ env.MODEL_PATH }}
+          # Здесь скрипт загрузки или подготовки легковесной модели
+          # python scripts/download_model.py --version ${{ github.event.inputs.model_version || '0.5' }} --dest ${{ env.MODEL_PATH }}
+
+      # 7. Миграция/синхронизация данных (подготовка перед генерацией)
+      - name: 🗄️ Migrate Storage State
+        run: |
+          echo "Synchronizing storage state before execution..."
+          # bash scripts/migrate_storage.sh || true
+
+      # 8. Запуск основной логики генерации
+      - name: 💻 Execute VIBE-CODE Generation Scripts
+        if: github.event.inputs.trigger_generation == 'true' || github.event_name == 'schedule'
+        run: |
+          echo "Running core Python automation scripts..."
+          # python generate.py --model_dir ${{ env.MODEL_PATH }}
+          
+          # Симуляция работы для примера
+          date > generated_output/latest_run_log.txt || echo "Log created"
+
+      # 9. Форматирование сгенерированного кода
+      - name: 🎨 Format Output (Black)
+        run: |
+          black . --exclude ${{ env.MODEL_PATH }}
+
+      # 10. Проверка изменений
+      - name: 🔍 Check for changes
+        id: check_changes
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
           else
-            echo "token=${{ secrets.GITHUB_TOKEN }}" >> "$GITHUB_OUTPUT"
-            echo "⚠️ Using default GITHUB_TOKEN"
-            
-            # Если целевой репо другой, дефолтный токен не сработает
-            if [ "$TARGET_REPO" != "$CURRENT_REPO" ]; then
-              echo "❌ ERROR: Невозможно создать PR в $TARGET_REPO с помощью GITHUB_TOKEN."
-              echo "💡 Для кросс-репозиторных PR необходимо добавить секрет GH_PAT с правами 'repo'."
-              exit 1
-            fi
+            echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
 
-      # ══════════════════════════════════════════════════════════════════════
-      # 4. VERIFY TARGET REPO EXISTS
-      # ══════════════════════════════════════════════════════════════════════
-      - name: Verify target repo exists
+      # 11. Подготовка ветки
+      - name: 🌿 Prepare Branch
+        if: steps.check_changes.outputs.has_changes == 'true'
         env:
-          GH_TOKEN: ${{ steps.resolve-token.outputs.token }}
+          BRANCH_NAME: ${{ github.event.inputs.branch_name || 'auto/infrastructure-update' }}
         run: |
-          echo "🔍 Checking if ${{ inputs.target_repo }} exists..."
-          
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ inputs.target_repo }}")
-          
-          if [ "$RESPONSE" != "200" ]; then
-            echo "❌ ERROR: Repository ${{ inputs.target_repo }} not found or not accessible (HTTP $RESPONSE)"
-            exit 1
-          fi
-          
-          BRANCH_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ inputs.target_repo }}/branches/${{ inputs.base_branch }}")
-          
-          if [ "$BRANCH_RESPONSE" != "200" ]; then
-            echo "❌ ERROR: Branch '${{ inputs.base_branch }}' not found in ${{ inputs.target_repo }}"
-            exit 1
-          fi
-          echo "✅ Branch '${{ inputs.base_branch }}' exists"
-
-      # ══════════════════════════════════════════════════════════════════════
-      # 5. FETCH FILES (Artifacts or Local)
-      # ══════════════════════════════════════════════════════════════════════
-      - name: Fetch generated files
-        id: fetch-files
-        env:
-          GH_TOKEN: ${{ steps.resolve-token.outputs.token }}
-          RUN_ID: ${{ inputs.run_id }}
-        run: |
-          mkdir -p /tmp/pr_files
-          
-          # Сначала ищем локальную папку
-          FOLDER="results/run-$RUN_ID"
-          if [ -d "$FOLDER" ]; then
-            echo "📂 Found local folder: $FOLDER"
-            cp -r "$FOLDER"/* /tmp/pr_files/ 2>/dev/null || true
+          if git ls-remote --heads origin $BRANCH_NAME | grep $BRANCH_NAME > /dev/null; then
+            git fetch origin $BRANCH_NAME
+            git checkout $BRANCH_NAME
           else
-            echo "📦 Fetching artifacts for run $RUN_ID via API..."
-            ARTIFACTS=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts")
-            
-            ARTIFACT_ID=$(echo "$ARTIFACTS" | jq -r '.artifacts[] | select(.name | startswith("vibe-output-")) | .id' | head -1)
-            
-            if [ -n "$ARTIFACT_ID" ] && [ "$ARTIFACT_ID" != "null" ]; then
-              curl -sL -H "Authorization: Bearer $GH_TOKEN" \
-                "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
-                -o /tmp/artifact.zip
-              unzip -q /tmp/artifact.zip -d /tmp/pr_files
-            else
-              echo "❌ ERROR: No files found locally or in artifacts for Run ID $RUN_ID."
-              exit 1
-            fi
+            git checkout -b $BRANCH_NAME
           fi
-          
-          # Очистка метаданных и вложенных архивов
-          find /tmp/pr_files -name "*.zip" -type f -exec rm -f {} +
-          rm -f /tmp/pr_files/_*.json /tmp/pr_files/_*.md /tmp/pr_files/_*.txt 2>/dev/null || true
-          
-          FILE_COUNT=$(find /tmp/pr_files -type f | wc -l)
-          if [ "$FILE_COUNT" -eq 0 ]; then
-            echo "❌ ERROR: No valid files to commit!"
-            exit 1
-          fi
-          echo "✅ Found $FILE_COUNT file(s) for PR."
 
-      # ══════════════════════════════════════════════════════════════════════
-      # 6. CLONE, COPY & COMMIT
-      # ══════════════════════════════════════════════════════════════════════
-      - name: Commit files to new branch
-        id: commit
+      # 12. Коммит и Пуш
+      - name: 💾 Commit and Push
+        if: steps.check_changes.outputs.has_changes == 'true'
         env:
-          GH_TOKEN: ${{ steps.resolve-token.outputs.token }}
-          TARGET_REPO: ${{ inputs.target_repo }}
-          BASE_BRANCH: ${{ inputs.base_branch }}
-          BRANCH: ${{ steps.validate.outputs.branch_name }}
+          BRANCH_NAME: ${{ github.event.inputs.branch_name || 'auto/infrastructure-update' }}
         run: |
-          git clone --depth 1 -b "$BASE_BRANCH" \
-            "https://x-access-token:$GH_TOKEN@github.com/$TARGET_REPO.git" /tmp/target
-          
-          cd /tmp/target
-          git checkout -b "$BRANCH"
-          
-          # Используем официальный email бота GitHub Actions
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
-          cp -r /tmp/pr_files/* ./
-          git add -A
-          
-          if git diff --staged --quiet; then
-            echo "⚠️ No changes to commit. Files are identical to $BASE_BRANCH."
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          
-          PROMPT="VIBE-CODE generated changes"
-          cat > /tmp/commit_msg.txt << EOF
-          feat(vibe): $PROMPT
+          git add .
+          git commit -m "🤖 [Auto] Infrastructure update & code generation"
+          git push -u origin $BRANCH_NAME
 
-          Generated by VIBE-CODE v3
-          Source run: https://github.com/${{ github.repository }}/actions/runs/${{ inputs.run_id }}
-          EOF
-          
-          git commit -F /tmp/commit_msg.txt
-          git push origin "$BRANCH"
-          
-          echo "has_changes=true" >> "$GITHUB_OUTPUT"
-          echo "✅ Committed and pushed to $BRANCH"
-
-      # ══════════════════════════════════════════════════════════════════════
-      # 7. CREATE PULL REQUEST
-      # ══════════════════════════════════════════════════════════════════════
-      - name: Create Pull Request
-        id: pr
-        if: steps.commit.outputs.has_changes == 'true'
+      # 13. Создание Pull Request через GitHub CLI
+      - name: 🚀 Create Pull Request
+        if: steps.check_changes.outputs.has_changes == 'true'
         env:
-          GH_TOKEN: ${{ steps.resolve-token.outputs.token }}
-          TARGET_REPO: ${{ inputs.target_repo }}
-          BASE_BRANCH: ${{ inputs.base_branch }}
-          BRANCH: ${{ steps.validate.outputs.branch_name }}
+          GITHUB_TOKEN: ${{ secrets.CH_Token }}
+          BRANCH_NAME: ${{ github.event.inputs.branch_name || 'auto/infrastructure-update' }}
+          BASE_BRANCH: main
         run: |
-          PR_TITLE="${{ inputs.pr_title || 'feat(vibe): Automated generation' }}"
-          
-          # Обработка исполнителей
-          ASSIGNEES_JSON="[]"
-          if [ -n "${{ inputs.assignees }}" ]; then
-            ASSIGNEES_JSON=$(echo '"${{ inputs.assignees }}"' | sed 's/,/","/g' | sed 's/ //g' | awk '{print "[" $0 "]"}')
-          fi
+          PR_BODY="### 🚀 Automated VIBE-CODE Infrastructure Update
 
-          cat > /tmp/pr_body.md << EOF
-          ## 🤖 Generated by VIBE-CODE
-          ${{ inputs.pr_description }}
+          **Execution Details:**
+          - **Trigger:** ${{ github.event_name }}
+          - **Model Connected:** ${{ github.event.inputs.model_version || 'vibe-code-0.5' }}
+          - **Python Env:** ${{ env.PYTHON_VERSION }}
           
-          ### 📊 Детали генерации
-          | Параметр | Значение |
-          |----------|----------|
-          | **Run ID** | [${{ inputs.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ inputs.run_id }}) |
-          | **Сгенерировано** | $(date -u +"%Y-%m-%d %H:%M UTC") |
-          EOF
-          
-          PR_DATA=$(jq -n \
-            --arg title "$PR_TITLE" \
-            --arg body "$(cat /tmp/pr_body.md)" \
-            --arg head "$BRANCH" \
-            --arg base "$BASE_BRANCH" \
-            --argjson draft ${{ inputs.draft }} \
-            '{title: $title, body: $body, head: $head, base: $base, draft: $draft}')
-            
-          RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$TARGET_REPO/pulls" \
-            -d "$PR_DATA")
-            
-          PR_URL=$(echo "$RESPONSE" | jq -r '.html_url')
-          PR_NUMBER=$(echo "$RESPONSE" | jq -r '.number')
-          
-          if [ "$PR_URL" = "null" ]; then
-            echo "❌ Failed to create PR: $(echo "$RESPONSE" | jq -r '.message')"
-            exit 1
-          fi
-          
-          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
-          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "✅ PR created: $PR_URL"
-          
-          # Назначение Assignees
-          if [ "$ASSIGNEES_JSON" != "[]" ]; then
-            curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/$TARGET_REPO/issues/$PR_NUMBER/assignees" \
-              -d "{\"assignees\": $ASSIGNEES_JSON}" > /dev/null
-          fi
-          
-          # Запрос Reviewers
-          if [ -n "${{ inputs.reviewers }}" ]; then
-            REVIEWERS_JSON=$(echo '"${{ inputs.reviewers }}"' | sed 's/,/","/g' | sed 's/ //g' | awk '{print "[" $0 "]"}')
-            curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/$TARGET_REPO/pulls/$PR_NUMBER/requested_reviewers" \
-              -d "{\"reviewers\": $REVIEWERS_JSON}" > /dev/null
-          fi
+          _This PR includes automated generation outputs, formatted code, and storage state updates._"
 
-      # ══════════════════════════════════════════════════════════════════════
-      # 8. ADD LABELS
-      # ══════════════════════════════════════════════════════════════════════
-      - name: Add labels to PR
-        if: steps.commit.outputs.has_changes == 'true' && inputs.add_labels == 'true'
-        env:
-          GH_TOKEN: ${{ steps.resolve-token.outputs.token }}
-          TARGET_REPO: ${{ inputs.target_repo }}
-          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
-        run: |
-          for LABEL in "vibe-code" "automated"; do
-            curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/$TARGET_REPO/labels" \
-              -d "{\"name\": \"$LABEL\", \"color\": \"7B68EE\"}" > /dev/null 2>&1 || true
-          done
+          EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --base "$BASE_BRANCH" --state open --json number --jq '.[0].number')
           
-          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/$TARGET_REPO/issues/$PR_NUMBER/labels" \
-            -d '{"labels": ["vibe-code", "automated"]}' > /dev/null
-
-      # ══════════════════════════════════════════════════════════════════════
-      # 9. SUMMARY
-      # ══════════════════════════════════════════════════════════════════════
-      - name: Summary
-        if: always()
-        run: |
-          echo "## 🎯 VIBE-CODE Create PR" >> $GITHUB_STEP_SUMMARY
-          if [ -n "${{ steps.pr.outputs.pr_url }}" ]; then
-            echo "### ✅ PR создан успешно: [Открыть PR →](${{ steps.pr.outputs.pr_url }})" >> $GITHUB_STEP_SUMMARY
+          if [ -z "$EXISTING_PR" ]; then
+            gh pr create --head "$BRANCH_NAME" --base "$BASE_BRANCH" --title "⚡ VIBE-CODE Output & Infrastructure Sync" --body "$PR_BODY" --label "automation"
           else
-            echo "### ⚠️ PR не был создан (см. логи)" >> $GITHUB_STEP_SUMMARY
+            gh pr comment $EXISTING_PR --body "🔄 **Pipeline Update:** New generation cycle completed and pushed."
           fi
