@@ -52,7 +52,7 @@ on:
         type: choice
         options: ['false', 'true']
       auto_pr:
-        description: '(deprecated — use pr.yaml workflow instead)'
+        description: 'Automatically create Pull Request in target_repo'
         default: 'false'
         type: choice
         options: ['false', 'true']
@@ -218,7 +218,7 @@ jobs:
       # ══ 8. SINGLE-AGENT MODEL ════════════════════════════════════════════
       - name: Restore single-agent model cache
         id: cache-single
-        if: inputs.agent_mode == 'single'
+        if: inputs.agent_mode == 'single' && inputs.model_single != 'vibe-0.5-free' && inputs.model_single != 'vibe-0.5'
         uses: actions/cache@v5
         with:
           path: ~/.ollama
@@ -226,13 +226,13 @@ jobs:
           restore-keys: |
             ollama-${{ inputs.model_single }}-
       - name: Pull single-agent model
-        if: inputs.agent_mode == 'single'
+        if: inputs.agent_mode == 'single' && inputs.model_single != 'vibe-0.5-free' && inputs.model_single != 'vibe-0.5'
         run: ollama pull ${{ inputs.model_single }}
 
       # ══ 9. PLANNER MODEL (multi) ═════════════════════════════════════════
       - name: Restore planner model cache
         id: cache-planner
-        if: inputs.agent_mode == 'multi'
+        if: inputs.agent_mode == 'multi' && inputs.model_planner != 'vibe-0.5-free' && inputs.model_planner != 'vibe-0.5'
         uses: actions/cache@v5
         with:
           path: ~/.ollama
@@ -240,7 +240,7 @@ jobs:
           restore-keys: |
             ollama-${{ inputs.model_planner }}-
       - name: Pull planner model
-        if: inputs.agent_mode == 'multi'
+        if: inputs.agent_mode == 'multi' && inputs.model_planner != 'vibe-0.5-free' && inputs.model_planner != 'vibe-0.5'
         run: ollama pull ${{ inputs.model_planner }}
 
       # ══ 10. CODER MODEL (multi) ══════════════════════════════════════════
@@ -272,8 +272,30 @@ jobs:
           ollama create bonsai-27b -f /tmp/bonsai-modelfile
           ollama list
       - name: Pull generic coder model
-        if: inputs.agent_mode == 'multi' && inputs.model_coder != 'bonsai-27b'
+        if: inputs.agent_mode == 'multi' && inputs.model_coder != 'bonsai-27b' && inputs.model_coder != 'vibe-0.5-free' && inputs.model_coder != 'vibe-0.5'
         run: ollama pull ${{ inputs.model_coder }}
+
+      # ══ 10.5 LOAD VIBE-CODE 0.5 (FREE MODEL) ══════════════════════════════
+      - name: Load local VIBE-CODE 0.5
+        if: contains(inputs.model_single, 'vibe-0.5') || contains(inputs.model_planner, 'vibe-0.5') || contains(inputs.model_coder, 'vibe-0.5')
+        run: |
+          echo "🤖 Initialize VIBE-CODE 0.5..."
+          if [ -f "models/vibe-0.5.gguf" ]; then
+            printf 'FROM ./models/vibe-0.5.gguf\nSYSTEM "You are VIBE-CODE 0.5, a fast, free, and lightweight AI coding assistant."\nPARAMETER temperature 0.3\nPARAMETER num_predict 4096\n' > /tmp/vibe05-modelfile
+            ollama create vibe-0.5 -f /tmp/vibe05-modelfile
+            echo "✅ VIBE-CODE 0.5 успешно загружена из models/vibe-0.5.gguf"
+          elif [ -f "vibe_0_5/vibe_0_5.model" ]; then
+            printf 'FROM ./vibe_0_5/vibe_0_5.model\nSYSTEM "You are VIBE-CODE 0.5, a fast, free, and lightweight AI coding assistant."\nPARAMETER temperature 0.3\nPARAMETER num_predict 4096\n' > /tmp/vibe05-modelfile
+            ollama create vibe-0.5 -f /tmp/vibe05-modelfile
+            echo "✅ VIBE-CODE 0.5 успешно загружена из vibe_0_5/vibe_0_5.model"
+          else
+            echo "⚠️ Локальный файл модели не найден. Скачиваю сверхлегкий Qwen 0.5B в качестве основы..."
+            ollama pull qwen2.5:0.5b
+            printf 'FROM qwen2.5:0.5b\nSYSTEM "You are VIBE-CODE 0.5, a fast, free, and lightweight AI coding assistant."\nPARAMETER temperature 0.3\n' > /tmp/vibe05-modelfile
+            ollama create vibe-0.5 -f /tmp/vibe05-modelfile
+            echo "✅ VIBE-CODE 0.5 создана на базе Qwen 0.5B."
+          fi
+          ollama list
 
       # ══ 11. TARGET REPO CONTEXT ══════════════════════════════════════════
       - name: Fetch target repo context
@@ -321,21 +343,20 @@ jobs:
           cat /tmp/vibe_output/_budget_report.json 2>/dev/null | python3 -m json.tool || true
           cat /tmp/vibe_output/_release_notes.md 2>/dev/null || echo "(no release notes)"
 
-      # ══ 14. COMMIT RESULTS (код + _run_summary.md для сайта) ═════════════
+      # ══ 14. COMMIT RESULTS ════════════════════════════════════════════════
       - name: Commit results to VIBE-CODE
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMMIT_MSG: "feat(vibe): ${{ inputs.prompt }}"
         run: |
-          git config user.name "VIBE-CODE Bot"
-          git config user.email "vibecode-bot@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           FOLDER="results/run-${{ github.run_id }}"
           mkdir -p "$FOLDER"
           find /tmp/vibe_output -maxdepth 2 -type f ! -name '_*' -exec cp {} "$FOLDER/" \; 2>/dev/null || true
-          for f in _release_notes.md _tools_status.json _progress.json _reasoning.json _budget_report.json; do
-            cp "/tmp/vibe_output/$f" "$FOLDER/" 2>/dev/null || true
+          for f in _release_notes.md _tools_status.json _progress.json _reasoning.json _budget_report.json _pr_url.txt; do
+            [ -f "/tmp/vibe_output/$f" ] && cp "/tmp/vibe_output/$f" "$FOLDER/" 2>/dev/null || true
           done
-          # ── сайт строит карточку сообщения из этого файла ────────────────
           cat > "$FOLDER/_run_summary.md" << SUMMARY
           # VIBE-CODE Run Summary
           | Field | Value |
@@ -357,7 +378,7 @@ jobs:
           SUMMARY
           python3 -m pip install -q pyyaml || true
           python3 update_token_stats.py || echo "⚠️ token stats update failed"
-          git add "$FOLDER" token_usage.yaml README.md
+          git add "$FOLDER" token_usage.yaml README.md 2>/dev/null || true
           if git diff --staged --quiet; then
             echo "Nothing to commit — outputs empty or unchanged"
           else
@@ -377,7 +398,7 @@ jobs:
           python3 sync_storage.py push && echo "✅ Storage pushed" \
             || echo "⚠️ Storage push failed"
 
-      # ══ 16. ARTIFACT (без ключей и чатов) ═════════════════════════════════
+      # ══ 16. ARTIFACT ══════════════════════════════════════════════════════
       - name: Upload output as artifact
         if: always()
         uses: actions/upload-artifact@v5
