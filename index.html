@@ -793,6 +793,13 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
               <option value="vibe-0.5-free" data-free="true">🆓 VIBE 0.5 (Free - No Token Cost)</option>
             </select>
           </div>
+          <div class="setting-row" id="admin-model-row" style="display:none">
+            <div class="setting-hint" style="margin-bottom:4px">👑 Admin OpenRouter model</div>
+            <select class="setting-select" id="sel-admin-model" onchange="saveSetting('admin_model',this.value)">
+              <option value="">Load OpenRouter models…</option>
+            </select>
+            <button class="topbar-btn" style="margin-top:6px" onclick="loadAdminModels()">↻ Refresh models</button>
+          </div>
         </div>
         <div class="setting-group">
           <div class="setting-label">Generation</div>
@@ -1779,8 +1786,10 @@ async function loadResults(runId, prompt, inputs) {
     }
     if (arts.length === 0) {
       appendMsgDOM({ role:'system', sender:'System',
-        content:'✅ Workflow completed — no downloadable artifacts found.', time: now() });
+        content:'✅ Actions завершён успешно, но workflow не создал downloadable artifacts.', time: now() });
     }
+    appendMsgDOM({ role:'system', sender:'VIBE-CODE',
+      content:`✅ Ответ получен из GitHub Actions. Run #${runId} завершён. Проверьте файлы и кнопку публикации PR ниже.`, time: now() });
   } catch(e) {
     appendMsgDOM({ role:'system', sender:'System',
       content:`⚠️ Could not load results: ${e.message}`, time: now() });
@@ -2816,6 +2825,28 @@ async function loadBillingHistory() {
   }
 }
 
+// ── Admin OpenRouter models ───────────────────────────────────────────────────
+async function loadAdminModels() {
+  if (!vibeUser?.is_owner) return;
+  const row = document.getElementById('admin-model-row');
+  const select = document.getElementById('sel-admin-model');
+  if (!row || !select) return;
+  row.style.display = '';
+  select.innerHTML = '<option>Loading OpenRouter models…</option>';
+  try {
+    const response = await vibeApiFetch('/admin/models');
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Failed to load models');
+    const saved = ls('vc2_settings', {}).admin_model || '';
+    select.innerHTML = payload.models.map(m =>
+      `<option value="openrouter:${m.id}">${escHtml(m.name)} — ${escHtml(m.id)}</option>`
+    ).join('');
+    if (saved && [...select.options].some(o => o.value === saved)) select.value = saved;
+  } catch (error) {
+    select.innerHTML = `<option value="">${escHtml(error.message)}</option>`;
+  }
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────────
 (function init() {
   loadSettings();
@@ -2824,7 +2855,7 @@ async function loadBillingHistory() {
   showTab('settings');
 
   updateSendState();
-  checkVibeAuth();
+  checkVibeAuth().then(() => { if (vibeUser?.is_owner) loadAdminModels(); });
 
   document.querySelectorAll('.modal-overlay').forEach(el => {
     el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
