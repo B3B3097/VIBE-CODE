@@ -1,0 +1,12 @@
+{
+  "total_tokens": 155,
+  "budget": 150000,
+  "elapsed_sec": 0.0,
+  "models": {
+    "planner": "qwen2.5:32b",
+    "coder": "bonsai-27b",
+    "single": "qwen2.5-coder:7b"
+  },
+  "agent_mode": "single",
+  "timestamp": "2026-08-24T03:06:00.890371"
+}
