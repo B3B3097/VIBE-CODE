@@ -347,8 +347,18 @@ class Git:
             rebase = self.run("rebase", "origin/main", check=False)
             if rebase.returncode != 0:
                 self.run("rebase", "--abort", check=False)
-                break
-        raise RuntimeError("git push origin failed after 3 safe rebase retries")
+                # A freshly created Storage repo has its own initial commit,
+                # so the histories may be unrelated. Merge it once and keep
+                # the migration's files instead of failing the whole job.
+                merge = self.run("merge", "origin/main", "--allow-unrelated-histories",
+                                 "-m", "chore(storage): merge remote storage history",
+                                 check=False)
+                if merge.returncode != 0:
+                    self.run("merge", "--abort", check=False)
+                    break
+                self.run("add", "-A")
+                self.run("commit", "--no-edit", check=False)
+        raise RuntimeError("git push origin failed after rebase/merge retries")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
