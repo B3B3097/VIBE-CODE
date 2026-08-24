@@ -322,10 +322,20 @@ class Git:
                     check=False).returncode == 0:
             return False
         self.run("commit", "-m", message)
-        r = self.run("push", "-u", "origin", f"HEAD:main", check=False)
-        if r.returncode != 0:
-            self.run("push", "origin", "HEAD:main")
-        return True
+        # Storage can be updated by another Actions run at the same time.
+        # Rebase our local commit onto the latest remote main and retry.
+        for attempt in range(3):
+            r = self.run("push", "-u", "origin", "HEAD:main", check=False)
+            if r.returncode == 0:
+                return True
+            fetch = self.run("fetch", "origin", "main", check=False)
+            if fetch.returncode != 0:
+                break
+            rebase = self.run("rebase", "origin/main", check=False)
+            if rebase.returncode != 0:
+                self.run("rebase", "--abort", check=False)
+                break
+        raise RuntimeError("git push origin failed after 3 safe rebase retries")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
