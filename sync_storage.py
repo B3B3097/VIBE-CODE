@@ -287,12 +287,21 @@ class Git:
                 return "seeded"
             return "cloned"
 
-        # совсем не удалось — локальный режим
+        # Clone can fail when the destination was pre-created or when the
+        # remote was initialized concurrently. Reconnect the directory to the
+        # real remote before falling back to a local-only mode.
+        os.makedirs(self.dir, exist_ok=True)
         self.seed()
         subprocess.run(["git", "init", "-b", "main", self.dir],
                        capture_output=True, text=True)
         self.identity()
+        self.run("remote", "remove", "origin", check=False)
         self.run("remote", "add", "origin", self.remote_url, check=False)
+        fetched = self.run("fetch", "origin", "main", check=False)
+        if fetched.returncode == 0:
+            checked_out = self.run("checkout", "-B", "main", "origin/main", check=False)
+            if checked_out.returncode == 0:
+                return "reconnected"
         return "local"
 
     def seed(self):
@@ -330,7 +339,11 @@ class Git:
                 return True
             fetch = self.run("fetch", "origin", "main", check=False)
             if fetch.returncode != 0:
-                break
+                continue
+            if not self.has_commits():
+                checkout = self.run("checkout", "-B", "main", "origin/main", check=False)
+                if checkout.returncode != 0:
+                    continue
             rebase = self.run("rebase", "origin/main", check=False)
             if rebase.returncode != 0:
                 self.run("rebase", "--abort", check=False)
