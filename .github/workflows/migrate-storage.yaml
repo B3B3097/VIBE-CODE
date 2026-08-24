@@ -60,11 +60,14 @@ jobs:
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
           HF_API_KEY: ${{ secrets.HF_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CRYPTO_BOT_TOKEN: ${{ secrets.CRYPTO_BOT_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           : > /tmp/secrets.env
           for k in SERPER_API_KEY OPENWEATHER_API_KEY OPENAI_API_KEY \
                    ANTHROPIC_API_KEY GROQ_API_KEY TOGETHER_API_KEY \
-                   HF_API_KEY TELEGRAM_BOT_TOKEN; do
+                   HF_API_KEY TELEGRAM_BOT_TOKEN CRYPTO_BOT_TOKEN \
+                   OPENROUTER_API_KEY; do
             v="${!k}"
             [ -n "$v" ] && echo "$k=$v" >> /tmp/secrets.env
           done
@@ -80,6 +83,7 @@ jobs:
           FORCE_FLAG=""
           [ "${{ inputs.force }}" = "true" ] && FORCE_FLAG="--force"
           python3 sync_storage.py migrate $FORCE_FLAG --source "${{ inputs.source_repo }}"
+          echo "✅ Migration completed to ${STORAGE_REPO}"
 
       - name: Backup extra files
         if: inputs.with_backup == 'true'
@@ -134,4 +138,6 @@ jobs:
 
       - name: Cleanup ephemeral secrets
         if: always()
-        run: rm -f /tmp/secrets.env
+        run: |
+          shred -u /tmp/secrets.env 2>/dev/null || rm -f /tmp/secrets.env
+          echo "✅ Ephemeral secret file removed"
