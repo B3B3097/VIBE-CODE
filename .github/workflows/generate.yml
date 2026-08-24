@@ -384,7 +384,11 @@ jobs:
           else
             echo "$COMMIT_MSG" > /tmp/commit_msg.txt
             git commit -F /tmp/commit_msg.txt
-            git push
+            # Another workflow may have updated main while this run was executing.
+            # Rebase the generated commit instead of failing with "fetch first".
+            git fetch origin main
+            git rebase origin/main
+            git push origin HEAD:main
             echo "✅ Results committed to $FOLDER"
           fi
 
