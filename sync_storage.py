@@ -256,7 +256,10 @@ class Git:
 
     def clone_or_open(self, gh: GH) -> str:
         """Вернуть строку-результат: 'updated' | 'cloned' | 'seeded' | 'local'."""
-        os.makedirs(self.dir, exist_ok=True)
+        # Do not create self.dir before clone: git clone requires the
+        # destination to be absent (or an empty directory it can claim).
+        parent = os.path.dirname(self.dir) or "."
+        os.makedirs(parent, exist_ok=True)
 
         if self.has_git():
             self.identity()
@@ -268,13 +271,21 @@ class Git:
                 self.run("pull", "--rebase", check=False)
             return "updated"
 
+        # A stale empty directory is safe to remove; a non-empty directory
+        # is handled by the reconnect fallback below.
+        if os.path.isdir(self.dir) and not os.listdir(self.dir):
+            os.rmdir(self.dir)
         r = subprocess.run(["git", "clone", self.remote_url, self.dir],
                            capture_output=True, text=True)
         if r.returncode != 0:
-            vlog("clone failed, trying to create repo via API")
+            vlog(f"clone failed: {r.stderr.strip()[:300]}; trying API repo check")
             gh.ensure_repo(self.repo)
-            subprocess.run(["git", "clone", self.remote_url, self.dir],
-                           capture_output=True, text=True)
+            if os.path.isdir(self.dir) and not os.listdir(self.dir):
+                os.rmdir(self.dir)
+            retry = subprocess.run(["git", "clone", self.remote_url, self.dir],
+                                   capture_output=True, text=True)
+            if retry.returncode != 0:
+                vlog(f"clone retry failed: {retry.stderr.strip()[:300]}")
 
         if self.has_git():
             self.identity()
