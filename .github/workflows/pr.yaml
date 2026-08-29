@@ -39,7 +39,6 @@ jobs:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.CH_Token }}
           fetch-depth: 0
 
       # 2. Настраиваем Git
@@ -92,9 +91,8 @@ jobs:
         run: |
           echo "Running core Python automation scripts..."
           # python generate.py --model_dir ${{ env.MODEL_PATH }}
-          
-          # Симуляция работы для примера
-          date > generated_output/latest_run_log.txt || echo "Log created"
+          mkdir -p generated_output
+          date > generated_output/latest_run_log.txt
 
       # 9. Форматирование сгенерированного кода
       - name: 🎨 Format Output (Black)
@@ -138,7 +136,7 @@ jobs:
       - name: 🚀 Create Pull Request
         if: steps.check_changes.outputs.has_changes == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.CH_Token }}
+          GITHUB_TOKEN: ${{ secrets.GH || secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           BRANCH_NAME: ${{ github.event.inputs.branch_name || 'auto/infrastructure-update' }}
           BASE_BRANCH: main
         run: |
@@ -154,7 +152,7 @@ jobs:
           EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --base "$BASE_BRANCH" --state open --json number --jq '.[0].number')
           
           if [ -z "$EXISTING_PR" ]; then
-            gh pr create --head "$BRANCH_NAME" --base "$BASE_BRANCH" --title "⚡ VIBE-CODE Output & Infrastructure Sync" --body "$PR_BODY" --label "automation"
+            gh pr create --head "$BRANCH_NAME" --base "$BASE_BRANCH" --title "⚡ VIBE-CODE Output & Infrastructure Sync" --body "$PR_BODY"
           else
             gh pr comment $EXISTING_PR --body "🔄 **Pipeline Update:** New generation cycle completed and pushed."
           fi
