@@ -43,6 +43,7 @@ import argparse
 import datetime
 import tempfile
 import subprocess
+import shutil
 import urllib.request
 import urllib.error
 
@@ -271,21 +272,34 @@ class Git:
                 self.run("pull", "--rebase", check=False)
             return "updated"
 
-        # A stale empty directory is safe to remove; a non-empty directory
-        # is handled by the reconnect fallback below.
-        if os.path.isdir(self.dir) and not os.listdir(self.dir):
-            os.rmdir(self.dir)
-        r = subprocess.run(["git", "clone", self.remote_url, self.dir],
+        # The lock file lives inside self.dir, so that directory is never
+        # empty by the time this method runs. Clone elsewhere, then copy the
+        # checkout into self.dir while preserving .sync.lock.
+        clone_dir = tempfile.mkdtemp(prefix="vibe-storage-clone-", dir=parent)
+        shutil.rmtree(clone_dir)
+        r = subprocess.run(["git", "clone", self.remote_url, clone_dir],
                            capture_output=True, text=True)
         if r.returncode != 0:
             vlog(f"clone failed: {r.stderr.strip()[:300]}; trying API repo check")
             gh.ensure_repo(self.repo)
-            if os.path.isdir(self.dir) and not os.listdir(self.dir):
-                os.rmdir(self.dir)
-            retry = subprocess.run(["git", "clone", self.remote_url, self.dir],
+            if os.path.exists(clone_dir):
+                shutil.rmtree(clone_dir)
+            retry = subprocess.run(["git", "clone", self.remote_url, clone_dir],
                                    capture_output=True, text=True)
             if retry.returncode != 0:
                 vlog(f"clone retry failed: {retry.stderr.strip()[:300]}")
+        if os.path.isdir(os.path.join(clone_dir, ".git")):
+            os.makedirs(self.dir, exist_ok=True)
+            for name in os.listdir(clone_dir):
+                source = os.path.join(clone_dir, name)
+                target = os.path.join(self.dir, name)
+                if os.path.isdir(source):
+                    shutil.copytree(source, target, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(source, target)
+            shutil.rmtree(clone_dir, ignore_errors=True)
+        elif os.path.exists(clone_dir):
+            shutil.rmtree(clone_dir, ignore_errors=True)
 
         if self.has_git():
             self.identity()
