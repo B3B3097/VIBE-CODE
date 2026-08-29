@@ -1504,6 +1504,10 @@ async function publishPR() {
 async function _publishPRDirect(repo, files, title) {
   const token = GH_TOKEN_LOCAL || ls('vc2_settings', {}).gh_token || '';
   if (!token || !repo || !files || Object.keys(files).length === 0) return;
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
+    toast('⚠️ Неверный формат GitHub repository', 'error');
+    return;
+  }
   const H = { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   const api = async (path, opts = {}) => {
     const r = await fetch(`https://api.github.com/repos/${repo}${path}`, {
@@ -1566,7 +1570,7 @@ async function _publishPRDirect(repo, files, title) {
     });
     if (!commit.ok || !commit.data?.sha) fail('Не удалось создать commit', commit);
 
-    const branchName = `vibe-code/${Date.now().toString(36)}`;
+    const branchName = `vibe-code/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const branch = await api('/git/refs', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: commit.data.sha })
@@ -1774,6 +1778,7 @@ async function loadResults(runId, prompt, inputs) {
 
     if (!window._runArtifactTokens) window._runArtifactTokens = {};
     window._runArtifactTokens[runId] = 0;
+    let artifactPrUrl = '';
     for (const art of arts) {
       const name = art.name;
       const zipResp = await fetch(
@@ -1781,9 +1786,22 @@ async function loadResults(runId, prompt, inputs) {
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
       const zipBlob = await zipResp.blob();
-      const artTokens = await processArtifactZip(zipBlob, name);
+      const processed = await processArtifactZip(zipBlob, name);
+      const artTokens = processed?.artifactTokens || 0;
+      if (processed?.prUrl) artifactPrUrl = processed.prUrl;
       if (artTokens) window._runArtifactTokens[runId] = (window._runArtifactTokens[runId] || 0) + artTokens;
     }
+
+    // The workflow may not have write access to a user's selected repository.
+    // Retry Auto PR here with the PAT that dispatched the workflow.
+    const autoPrRequested = String(inputs?.auto_pr || '').toLowerCase() === 'true';
+    const autoPrFiles = getCurrentChatFiles();
+    if (!artifactPrUrl && autoPrRequested && inputs?.target_repo && Object.keys(autoPrFiles).length > 0) {
+      const chat = getCurrentChat();
+      const autoTitle = `feat: ${(chat?.name || prompt || 'VIBE-CODE changes').slice(0, 66)}`;
+      await _publishPRDirect(inputs.target_repo, autoPrFiles, autoTitle);
+    }
+
     if (arts.length === 0) {
       appendMsgDOM({ role:'system', sender:'System',
         content:'✅ Actions завершён успешно, но workflow не создал downloadable artifacts.', time: now() });
@@ -1919,7 +1937,7 @@ async function processArtifactZip(blob, artifactName) {
       `<a class="pr-link" href="${prUrl}" target="_blank">🔗 View Pull Request</a>`;
   }
 
-  return artifactTokens;
+  return { artifactTokens, prUrl };
 }
 
 function displayDownloadBtn(files, label) {
