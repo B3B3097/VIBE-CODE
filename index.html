@@ -1866,6 +1866,7 @@ async function processArtifactZip(blob, artifactName) {
 
   const releaseNotes = files['_release_notes.md'] || '';
   const prUrl = files['_pr_url.txt'] || '';
+  const diffContent = files['_diff.md'] || '';
   let artifactTokens = 0;
   try {
     const progress = files['_progress.json'];
@@ -1920,6 +1921,15 @@ async function processArtifactZip(blob, artifactName) {
           time: now() });
       }
     } catch {}
+  }
+
+  // Display changes summary (diff) when Auto PR is enabled
+  if (diffContent) {
+    appendMsgDOM({ role:'git', sender:'Changes Summary', badge:'auto-pr',
+      content: '# Changes Made\n\n' + diffContent, time: now() });
+    document.getElementById('release-notes-content').innerHTML =
+      renderMarkdown('# Changes Summary\n\n' + diffContent);
+    showTab('notes');
   }
 
   if (releaseNotes) {
