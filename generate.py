@@ -1296,10 +1296,37 @@ class GitIntegration:
         resp = self._req(f"/repos/{self.repo}/compare/{default}...{branch}")
         files = resp.get("files", [])
         diff_parts = []
+        changes_summary = {"added": [], "modified": [], "removed": []}
+        
         for f in files[:20]:
+            filename = f['filename']
+            status = f.get('status', 'modified')  # added, modified, removed
+            patch = f.get('patch', '')
+            
+            if status == 'added':
+                changes_summary['added'].append(filename)
+            elif status == 'modified':
+                changes_summary['modified'].append(filename)
+            elif status == 'removed':
+                changes_summary['removed'].append(filename)
+            
             diff_parts.append(
-                f"### {f['filename']}\n```diff\n{f.get('patch','')}\n```")
-        return "\n".join(diff_parts)
+                f"### {f['status'].upper()}: {filename}\n```diff\n{patch}\n```")
+        
+        # Добавляем сводку изменений в начало
+        summary_lines = ["## 📊 Changes Summary\n"]
+        if changes_summary['added']:
+            summary_lines.append(f"**✅ Added ({len(changes_summary['added'])}):** " + 
+                                ", ".join(changes_summary['added']))
+        if changes_summary['modified']:
+            summary_lines.append(f"**🔧 Modified ({len(changes_summary['modified'])}):** " + 
+                                ", ".join(changes_summary['modified']))
+        if changes_summary['removed']:
+            summary_lines.append(f"**❌ Removed ({len(changes_summary['removed'])}):** " + 
+                                ", ".join(changes_summary['removed']))
+        summary_lines.append("")
+        
+        return "\n".join(summary_lines) + "\n".join(diff_parts)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1413,10 +1440,16 @@ For each file, output:
 ```
 
 IMPORTANT: 
-- For NEW files: create the complete new file
-- For EXISTING files: read the current content from REPOSITORY CONTEXT and output the ENTIRE modified file
+- For NEW files (action="create"): create the complete new file from scratch
+- For EXISTING files (action="modify"): 
+  * First read the current content from REPOSITORY CONTEXT below
+  * Apply the requested changes to the existing code
+  * Output the ENTIRE modified file with all changes applied
+  * Preserve existing code structure, imports, functions that are not being changed
+  * Do NOT output only diffs or partial changes - always output the FULL file
 - Always output complete files, never fragments or diffs
-- Be precise and thorough.""" \
+- Be precise and thorough.
+- If a file needs to be modified but is not in REPOSITORY CONTEXT, treat it as a new file.""" \
         + (UNCENSORED_ADDENDUM if UNCENSORED else "")
 
     FILE_PATTERN = r'```(?:filename:\s*)?([^\n`]+)\n([\s\S]*?)```'
@@ -1436,6 +1469,19 @@ IMPORTANT:
                        f"⚡ Coder implementing: {plan.get('summary','...')}",
                        agent="coder")
         steps_txt = json.dumps(plan.get("steps", []), indent=2)
+        
+        # Добавляем явную инструкцию о чтении существующих файлов
+        file_actions = []
+        for step in plan.get("steps", []):
+            action = step.get("action", "create")
+            fname = step.get("file", "")
+            if action == "modify":
+                file_actions.append(f"- READ existing file '{fname}' from REPOSITORY CONTEXT and apply modifications")
+            else:
+                file_actions.append(f"- CREATE new file '{fname}'")
+        
+        file_instructions = "\n".join(file_actions) if file_actions else ""
+        
         user_msg = (
             f"EXECUTION PLAN:\n{steps_txt}\n\n"
             + (f"INTERNET CONTEXT:\n{tool_ctx[:5000]}\n\n" if tool_ctx else "")
@@ -1443,6 +1489,7 @@ IMPORTANT:
                if repo_ctx else "")
             + (f"REVIEWER FEEDBACK (please fix):\n{feedback}\n\n"
                if feedback else "")
+            + f"FILE ACTIONS REQUIRED:\n{file_instructions}\n\n"
             + "Implement all steps. Output complete files using the "
               "```filename: ... ``` format."
         )
@@ -1542,8 +1589,23 @@ class Orchestrator:
                         if TARGET_REPO and GH_TOKEN else None
         self.total_tokens = 0
         self.reasoning    = []
+        self.budget_exhausted = False
+
+    def _check_budget(self, tokens_needed: int = 0) -> bool:
+        """Проверка бюджета. Возвращает True если бюджет исчерпан."""
+        if TOTAL_BUDGET <= 0:
+            return False
+        if self.total_tokens + tokens_needed >= TOTAL_BUDGET:
+            self.budget_exhausted = True
+            return True
+        return False
 
     def _transition(self, new_state: AgentState, msg: str):
+        if self.budget_exhausted:
+            write_progress("budget_exhausted", 
+                          f"⚠️ Бюджет исчерпан: {self.total_tokens}/{TOTAL_BUDGET} токенов",
+                          self.total_tokens, extra={"state": "budget_exhausted"})
+            return
         self.state = new_state
         write_progress(new_state.value, msg, self.total_tokens,
                        extra={"state": new_state.value})
@@ -1599,6 +1661,8 @@ class Orchestrator:
 
         # ── 5. Review loop ───────────────────────────────────────────────────
         for loop in range(self.MAX_REVIEW_LOOPS):
+            if self._check_budget(100):  # Проверяем бюджет перед review
+                break
             self._transition(AgentState.REVIEWING,
                              f"🔍 Planner reviewing (pass {loop + 1})...")
             review = self.planner.review(task, files, budget_per_call)
@@ -1618,6 +1682,8 @@ class Orchestrator:
                                self.total_tokens, "planner")
                 break
 
+            if self._check_budget(200):  # Проверяем бюджет перед рефакторингом
+                break
             self._transition(AgentState.CODING,
                              f"🔧 Coder refactoring: "
                              f"{review.get('feedback','')[:60]}")
@@ -1732,8 +1798,7 @@ def save_outputs(files: dict, release_notes: str = "", pr_url: str = "",
             f.write(pr_url)
     if diff_content:
         with open(f"{OUTPUT_DIR}/_diff.md", "w") as f:
-            f.write("# Changes Summary\n\n")
-            f.write(diff_content)
+            f.write(diff_content)  # diff уже содержит заголовок из get_diff()
 
     toolkit = APIToolkit()
     tools = toolkit.available_tools()
