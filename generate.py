@@ -318,6 +318,44 @@ def write_progress(status: str, message: str, tokens_used: int = 0,
     except Exception:
         pass
     print(f"[{agent or status}] {message}", flush=True)
+    
+    # Также сохраняем данные в _chat.json для UI
+    try:
+        chat_file = os.path.join(OUTPUT_DIR, "_chat.json")
+        chat_data = []
+        if os.path.exists(chat_file):
+            with open(chat_file, "r") as f:
+                chat_data = json.load(f)
+        chat_data.append(data)
+        with open(chat_file, "w") as f:
+            json.dump(chat_data, f, indent=2)
+    except Exception:
+        pass
+    
+    # Добавляем в CHAT_HISTORY для отображения в UI
+    role_map = {
+        "planner": "assistant",
+        "coder": "assistant", 
+        "git": "system",
+        "release-notes": "system",
+        "reviewing": "assistant",
+        "committing": "system",
+        "releasing": "system",
+        "budget_exhausted": "system"
+    }
+    role = role_map.get(agent, "system")
+    emoji_map = {
+        "planner": "🧠",
+        "coder": "⚡",
+        "git": "🔗",
+        "release-notes": "📝",
+        "reviewing": "🔍",
+        "committing": "🚀",
+        "releasing": "📄",
+        "budget_exhausted": "⚠️"
+    }
+    emoji = emoji_map.get(agent, "")
+    chat_log(role, f"{emoji} {message}", agent, extra)
 
 
 def banner(title: str):
@@ -1737,11 +1775,12 @@ class Orchestrator:
                                extra={"pr_url": pr_url})
                 diff = self.git.get_diff(branch)
                 
-                # Save diff for UI display
+                # Save diff for UI display AND return in result
                 if diff:
                     with open(f"{OUTPUT_DIR}/_diff.md", "w") as f:
                         f.write("# Changes Summary\n\n")
                         f.write(diff)
+                    result["diff"] = diff  # Возвращаем diff в результат
             except Exception as e:
                 # PR permissions are independent from generation. Keep the
                 # generated files available so the browser can retry with the
@@ -2005,7 +2044,8 @@ def main():
         save_outputs(result.get("files", {}),
                      result.get("release_notes", ""),
                      result.get("pr_url", ""),
-                     result.get("reasoning", []))
+                     result.get("reasoning", []),
+                     result.get("diff", ""))
         write_budget_report(result.get("total_tokens", 0),
                             result.get("elapsed", 0))
     else:
