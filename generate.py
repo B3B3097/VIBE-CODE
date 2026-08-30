@@ -1309,8 +1309,9 @@ class PlannerAgent:
     SYSTEM = """You are a Senior Software Architect. Your role is to:
 1. Analyze the codebase and understand the existing architecture
 2. Decompose the user's task into concrete implementation steps
-3. Identify which files need to be created or modified
-4. Write a clear, actionable execution plan for the Coder agent
+3. Identify which files need to be CREATED or MODIFIED (be specific)
+4. For each file, clearly specify action: "create" for new files, "modify" for existing ones
+5. Write a clear, actionable execution plan for the Coder agent
 
 Output your plan as valid JSON with this structure:
 {
@@ -1321,13 +1322,18 @@ Output your plan as valid JSON with this structure:
       "id": 1,
       "description": "What to do",
       "file": "path/to/target/file.py",
-      "action": "create|modify|delete",
-      "details": "Specific implementation notes"
+      "action": "create|modify",
+      "details": "Specific implementation notes - describe EXACTLY what changes to make"
     }
   ],
   "dependencies": ["package1"],
   "risks": ["potential issue 1"]
-}""" + (UNCENSORED_ADDENDUM if UNCENSORED else "")
+}
+
+IMPORTANT: 
+- Use "modify" action when changing existing files
+- Include detailed instructions in "details" field for modifications
+- The Coder needs to know exactly what to change in existing files""" + (UNCENSORED_ADDENDUM if UNCENSORED else "")
 
     def decompose(self, task: str, repo_ctx: str = "",
                   tool_ctx: str = "", tokens_budget: int = 2048) -> dict:
@@ -1399,13 +1405,18 @@ class CoderAgent:
 2. Write clean, production-ready code for each step
 3. Follow existing code style and patterns from the repository
 4. Include error handling and documentation
+5. When modifying existing files, output the COMPLETE updated file content
 
 For each file, output:
 ```filename: path/to/file.ext
-[complete file content here]
+[complete file content here - FULL file, not just changes]
 ```
 
-Write complete files, not fragments. Be precise and thorough.""" \
+IMPORTANT: 
+- For NEW files: create the complete new file
+- For EXISTING files: read the current content from REPOSITORY CONTEXT and output the ENTIRE modified file
+- Always output complete files, never fragments or diffs
+- Be precise and thorough.""" \
         + (UNCENSORED_ADDENDUM if UNCENSORED else "")
 
     FILE_PATTERN = r'```(?:filename:\s*)?([^\n`]+)\n([\s\S]*?)```'
@@ -1659,6 +1670,12 @@ class Orchestrator:
                                self.total_tokens, "git",
                                extra={"pr_url": pr_url})
                 diff = self.git.get_diff(branch)
+                
+                # Save diff for UI display
+                if diff:
+                    with open(f"{OUTPUT_DIR}/_diff.md", "w") as f:
+                        f.write("# Changes Summary\n\n")
+                        f.write(diff)
             except Exception as e:
                 # PR permissions are independent from generation. Keep the
                 # generated files available so the browser can retry with the
@@ -1695,7 +1712,7 @@ class Orchestrator:
 # 16. OUTPUT SAVING & REPORTS
 # ─────────────────────────────────────────────────────────────────────────────
 def save_outputs(files: dict, release_notes: str = "", pr_url: str = "",
-                 reasoning: list = None):
+                 reasoning: list = None, diff_content: str = ""):
     """Write generated files + metadata to OUTPUT_DIR (public-safe only)."""
     for fname, content in files.items():
         safe = safe_filename(fname)
@@ -1713,6 +1730,10 @@ def save_outputs(files: dict, release_notes: str = "", pr_url: str = "",
     if pr_url:
         with open(f"{OUTPUT_DIR}/_pr_url.txt", "w") as f:
             f.write(pr_url)
+    if diff_content:
+        with open(f"{OUTPUT_DIR}/_diff.md", "w") as f:
+            f.write("# Changes Summary\n\n")
+            f.write(diff_content)
 
     toolkit = APIToolkit()
     tools = toolkit.available_tools()
