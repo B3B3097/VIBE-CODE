@@ -1396,7 +1396,8 @@ Output your plan as valid JSON with this structure:
 }
 
 IMPORTANT: 
-- Use "modify" action when changing existing files
+- FIRST scan the REPOSITORY CONTEXT. For EVERY file that ALREADY exists and relates to the task, set action="modify" AND list it in files_to_read so its full content is loaded for the Coder. Use action="create" ONLY for files that genuinely do NOT exist yet.
+- NEVER propose creating a new or duplicate version of a file that already exists — always modify the existing one.
 - Include detailed instructions in "details" field for modifications
 - The Coder needs to know exactly what to change in existing files""" + (UNCENSORED_ADDENDUM if UNCENSORED else "")
 
@@ -1487,6 +1488,7 @@ IMPORTANT:
   * Do NOT output only diffs or partial changes - always output the FULL file
 - Always output complete files, never fragments or diffs
 - Be precise and thorough.
+- The repository ALREADY contains files. Whenever a file already exists in REPOSITORY CONTEXT, you MUST modify that existing file (reproduce its content and apply your changes) — never create a fresh/alternate version of an existing file, and never create a 'TODO', 'fixes', 'description', or 'changes.py' summary file that merely lists what to fix. Apply changes directly to the real existing files.
 - If a file needs to be modified but is not in REPOSITORY CONTEXT, treat it as a new file.""" \
         + (UNCENSORED_ADDENDUM if UNCENSORED else "")
 
@@ -1687,6 +1689,39 @@ class Orchestrator:
 
         # ── 4. Coding ────────────────────────────────────────────────────────
         self._transition(AgentState.CODING, "⚡ Coder implementing plan...")
+
+        # -- 3b. Load FULL content of existing files the planner wants to
+        # modify, replacing the truncated 3000-char snippets in repo context
+        # so the coder edits the real files instead of new versions. --
+        if self.git:
+            want = []
+            for s in plan.get("steps", []):
+                if s.get("action") == "modify" and s.get("file"):
+                    want.append(s["file"])
+            for p in plan.get("files_to_read", []) or []:
+                if p not in want:
+                    want.append(p)
+            ctx = repo_ctx or ""
+            fence = "\n```\n"
+            for p in list(dict.fromkeys(want))[:12]:
+                try:
+                    full = self.git.get_file(p)
+                except Exception:
+                    full = ""
+                if not full or len(full) < 50:
+                    continue
+                marker = "## " + p
+                start = ctx.find(marker)
+                block = marker + fence + full + fence
+                if start < 0:
+                    ctx = ctx + "\n# Full content of files to modify\n\n" + block + "\n"
+                else:
+                    nxt = ctx.find("\n## ", start + 1)
+                    if nxt < 0:
+                        nxt = len(ctx)
+                    ctx = ctx[:start] + block + ctx[nxt:]
+            repo_ctx = ctx
+
         code_budget = (TOTAL_BUDGET // 2) if TOTAL_BUDGET else MAX_TOKENS
         code_result = self.coder.implement(plan, repo_ctx, tool_ctx, "",
                                            code_budget)
