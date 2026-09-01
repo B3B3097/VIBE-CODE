@@ -1,0 +1,20 @@
+[
+  {
+    "agent": "tools",
+    "phase": "fetching",
+    "content": "No external context was needed",
+    "tokens": 0
+  },
+  {
+    "agent": "coder",
+    "phase": "iteration-1",
+    "content": "Generated iteration 1; output length: 94 characters",
+    "tokens": 311
+  },
+  {
+    "agent": "git",
+    "phase": "publishing",
+    "content": "Committed 1 file(s) and created a pull request",
+    "tokens": 0
+  }
+]
