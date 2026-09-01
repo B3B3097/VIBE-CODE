@@ -1,0 +1,191 @@
+[
+  {
+    "name": "web_search",
+    "category": "Search",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "brave_search",
+    "category": "Search",
+    "free": false,
+    "key": "BRAVE_API_KEY",
+    "active": false
+  },
+  {
+    "name": "wikipedia",
+    "category": "Knowledge",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "fetch_url",
+    "category": "Web",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "weather",
+    "category": "Weather",
+    "free": true,
+    "key": "OPENWEATHER_API_KEY",
+    "active": true
+  },
+  {
+    "name": "weather_forecast",
+    "category": "Weather",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "news",
+    "category": "News",
+    "free": true,
+    "key": "NEWS_API_KEY",
+    "active": true
+  },
+  {
+    "name": "crypto_price",
+    "category": "Finance",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "stock_price",
+    "category": "Finance",
+    "free": true,
+    "key": "ALPHAVANTAGE_API_KEY",
+    "active": true
+  },
+  {
+    "name": "exchange_rates",
+    "category": "Finance",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "countries",
+    "category": "Geo",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "geocode",
+    "category": "Geo",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "ip_info",
+    "category": "Geo",
+    "free": true,
+    "key": "IPINFO_TOKEN",
+    "active": true
+  },
+  {
+    "name": "world_time",
+    "category": "Time",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "translate",
+    "category": "Language",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "dictionary",
+    "category": "Language",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "wolfram_query",
+    "category": "Math",
+    "free": false,
+    "key": "WOLFRAM_API_KEY",
+    "active": false
+  },
+  {
+    "name": "qr_code",
+    "category": "Utility",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "random_user",
+    "category": "Utility",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "execute_code",
+    "category": "Dev",
+    "free": false,
+    "key": "JUDGE0_API_KEY",
+    "active": false
+  },
+  {
+    "name": "github_repo",
+    "category": "Dev",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "github_search_code",
+    "category": "Dev",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "package_info",
+    "category": "Dev",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "unsplash_images",
+    "category": "Media",
+    "free": false,
+    "key": "UNSPLASH_API_KEY",
+    "active": false
+  },
+  {
+    "name": "pexels_images",
+    "category": "Media",
+    "free": false,
+    "key": "PEXELS_API_KEY",
+    "active": false
+  },
+  {
+    "name": "notion_search",
+    "category": "Productivity",
+    "free": false,
+    "key": "NOTION_API_KEY",
+    "active": false
+  },
+  {
+    "name": "airtable_list",
+    "category": "Productivity",
+    "free": false,
+    "key": "AIRTABLE_API_KEY",
+    "active": false
+  }
+]

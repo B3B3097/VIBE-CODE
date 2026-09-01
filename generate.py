@@ -58,16 +58,19 @@ PROMPT         = os.getenv("PROMPT",         "")
 FILE_NAME      = os.getenv("FILE_NAME",      "").strip()
 MODE           = os.getenv("MODE",           "generate")
 
-# If the UI did not pass a filename, try to extract one from prompts such as
-# "Создай файл test.txt" or "create file src/main.py".
+# Улучшенная детекция имени файла из промпта
 if not FILE_NAME:
-    _filename_match = re.search(
-        r"(?:файл|file)\s+[`\"']?([\w./-]+\.[A-Za-z0-9]{1,12})[`\"']?",
-        PROMPT,
-        flags=re.IGNORECASE,
-    )
-    if _filename_match:
-        FILE_NAME = _filename_match.group(1).replace("", "/").lstrip("/")
+    # Паттерны для разных языков и форматов
+    patterns = [
+        r"(?:файл|file)\s+[`\"']?([\w./-]+\.[A-Za-z0-9]{1,12})[`\"']?",  # "файл test.txt"
+        r"(?:создай|create|make)\s+[`\"']?([\w./-]+\.[A-Za-z0-9]{1,12})[`\"']?",  # "создай test.txt"
+        r"[`\"']([\w./-]+\.[A-Za-z0-9]{1,12})[`\"']",  # "test.txt" в кавычках
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, PROMPT, flags=re.IGNORECASE)
+        if match:
+            FILE_NAME = match.group(1).replace("", "/").lstrip("/")
+            break
 
 MAX_TOKENS     = int(os.getenv("MAX_TOKENS",   "4096"))
 UNCENSORED     = os.getenv("UNCENSORED", "false").lower() in ("true", "1", "yes", "on")
@@ -419,6 +422,44 @@ def sha8(text: str) -> str:
 
 def json_block(text: str, limit: int = 2000) -> str:
     return "```json\n" + truncate(text, limit) + "\n```"
+
+
+# Функция для умной детекции типа файла из промпта
+def detect_file_type(prompt: str, filename: str = "") -> str:
+    """Определяет тип файла на основе промпта и имени файла."""
+    prompt_lower = prompt.lower()
+    
+    # Если указано расширение в имени файла
+    if filename:
+        ext = os.path.splitext(filename)[1].lower()
+        ext_map = {
+            '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
+            '.html': 'html', '.css': 'css', '.json': 'json',
+            '.md': 'markdown', '.txt': 'text', '.sh': 'bash',
+            '.yaml': 'yaml', '.yml': 'yaml', '.sql': 'sql',
+            '.go': 'go', '.rs': 'rust', '.java': 'java',
+            '.cpp': 'cpp', '.c': 'c', '.rb': 'ruby',
+        }
+        if ext in ext_map:
+            return ext_map[ext]
+    
+    # Детекция по ключевым словам в промпте
+    keywords = {
+        'python': ['python', 'пайтон', 'py', 'django', 'flask', 'fastapi'],
+        'javascript': ['javascript', 'js', 'node', 'react', 'vue', 'angular'],
+        'html': ['html', 'webpage', 'веб-страниц', 'сайт'],
+        'css': ['css', 'стил', 'style'],
+        'bash': ['bash', 'shell', 'script', 'команд'],
+        'sql': ['sql', 'database', 'базы данных', 'запрос'],
+        'json': ['json', 'конфиг', 'config'],
+        'text': ['текст', 'text', 'txt'],
+    }
+    
+    for file_type, words in keywords.items():
+        if any(word in prompt_lower for word in words):
+            return file_type
+    
+    return 'text'  # по умолчанию
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1953,7 +1994,7 @@ def write_budget_report(total_tokens: int, elapsed: float):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 17. SINGLE-AGENT LEGACY PATH
+# 17. SINGLE-AGENT LEGACY PATH — ИСПРАВЛЕНО
 # ─────────────────────────────────────────────────────────────────────────────
 def run_single_agent() -> dict:
     print(f"🤖 Single-agent mode | Model: {MODEL_SINGLE}")
@@ -1982,10 +2023,19 @@ def run_single_agent() -> dict:
     total_tokens = 0
     output_parts = []
 
-    system_text = ("You are an expert software engineer. Write complete, "
-                   "production-ready code. NEVER write descriptions or TODO lists - "
-                   "ALWAYS write REAL WORKING CODE."
-                   + (UNCENSORED_ADDENDUM if UNCENSORED else ""))
+    # Определяем тип задачи
+    detected_type = detect_file_type(PROMPT, FILE_NAME)
+    
+    system_text = (
+        "You are an expert software engineer. "
+        f"Task type detected: {detected_type}. "
+        "Write complete, production-ready, WORKING CODE. "
+        "NEVER write descriptions, explanations, or TODO lists - ALWAYS write REAL EXECUTABLE CODE. "
+        "If the task asks to create a file with text content, create that exact file. "
+        "If the task asks to write code, write ACTUAL CODE that runs."
+        + (UNCENSORED_ADDENDUM if UNCENSORED else "")
+    )
+    
     if PARENT_CONTEXT:
         system_text += f"\n\nPARENT CHAT CONTEXT:\n{PARENT_CONTEXT}"
     if REPO_CONTEXT:
@@ -1995,11 +2045,22 @@ def run_single_agent() -> dict:
 
     messages = [{"role": "system", "content": system_text}]
 
-    user_msg = PROMPT
+    user_msg = f"{PROMPT}\n\n"
+    
+    # Явно указываем, какой файл нужно создать
+    if FILE_NAME:
+        user_msg += f"Create file: {FILE_NAME}\n"
+        user_msg += f"Output the complete content for this file.\n"
+    
+    # Для простых задач с созданием текстового файла - добавляем прямую инструкцию
+    if detected_type in ('text', 'bash') and 'создай файл' in PROMPT.lower():
+        user_msg += "\nIMPORTANT: Output ONLY the exact content that should be in the file. Do NOT add explanations or commands.\n"
+    
     if ATTACHED_CONTENT:
         ext = os.path.splitext(FILE_NAME)[1].lstrip(".") or "txt"
         user_msg = (f"```{ext}\n# {FILE_NAME}\n"
-                    f"{ATTACHED_CONTENT[:60000]}\n```\n\n" + PROMPT)
+                    f"{ATTACHED_CONTENT[:60000]}\n```\n\n" + user_msg)
+    
     messages.append({"role": "user", "content": user_msg})
 
     for i in range(max(1, ITERATIONS)):
@@ -2022,10 +2083,30 @@ def run_single_agent() -> dict:
         if budget_left <= 0:
             break
         if ITERATIONS > 1:
-            cont = {"role": "user", "content": "Continue."}
+            cont = {"role": "user", "content": "Continue with the implementation."}
             messages.append(cont)
 
     output = "\n\n".join(output_parts)
+    
+    # Очистка вывода от возможных обёрток
+    output = output.strip()
+    
+    # Удаляем markdown блоки если они есть
+    if output.startswith("```") and output.endswith("```"):
+        lines = output.split("\n")
+        output = "\n".join(lines[1:-1])  # Убираем первую и последнюю строку с ```
+    
+    # Удаляем возможные shell-команды обёртки для текстовых файлов
+    if detected_type == 'text' and (output.startswith("echo") or output.startswith("cat")):
+        # Пытаемся извлечь только содержимое
+        match = re.search(r'echo\s+"([^"]+)"', output)
+        if match:
+            output = match.group(1)
+        else:
+            match = re.search(r"echo\s+'([^']+)'", output)
+            if match:
+                output = match.group(1)
+    
     files  = {FILE_NAME or "output.txt": output}
     notes  = ""
     pr_url = ""
