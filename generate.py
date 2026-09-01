@@ -1368,7 +1368,7 @@ class GitIntegration:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 12. PLANNER AGENT
+# 12. PLANNER AGENT — ИСПРАВЛЕНО
 # ─────────────────────────────────────────────────────────────────────────────
 class PlannerAgent:
     SYSTEM = """You are a Senior Software Architect. Your role is to:
@@ -1377,6 +1377,8 @@ class PlannerAgent:
 3. Identify which files need to be CREATED or MODIFIED (be specific)
 4. For each file, clearly specify action: "create" for new files, "modify" for existing ones
 5. Write a clear, actionable execution plan for the Coder agent
+
+CRITICAL: The Coder agent will IMPLEMENT your plan EXACTLY. DO NOT ask the Coder to "describe changes" or create placeholder files. The Coder must write ACTUAL WORKING CODE.
 
 Output your plan as valid JSON with this structure:
 {
@@ -1388,7 +1390,7 @@ Output your plan as valid JSON with this structure:
       "description": "What to do",
       "file": "path/to/target/file.py",
       "action": "create|modify",
-      "details": "Specific implementation notes - describe EXACTLY what changes to make"
+      "details": "EXACT implementation instructions - the Coder will write ACTUAL CODE based on this"
     }
   ],
   "dependencies": ["package1"],
@@ -1396,10 +1398,12 @@ Output your plan as valid JSON with this structure:
 }
 
 IMPORTANT: 
-- FIRST scan the REPOSITORY CONTEXT. For EVERY file that ALREADY exists and relates to the task, set action="modify" AND list it in files_to_read so its full content is loaded for the Coder. Use action="create" ONLY for files that genuinely do NOT exist yet.
+- FIRST scan the REPOSITORY CONTEXT. For EVERY file that ALREADY exists and relates to the task, set action="modify" AND list it in files_to_read so its full content is loaded for the Coder.
+- Use action="create" ONLY for files that genuinely do NOT exist yet.
 - NEVER propose creating a new or duplicate version of a file that already exists — always modify the existing one.
-- Include detailed instructions in "details" field for modifications
-- The Coder needs to know exactly what to change in existing files""" + (UNCENSORED_ADDENDUM if UNCENSORED else "")
+- Include detailed IMPLEMENTATION instructions in "details" field - the Coder will write REAL CODE, not descriptions
+- The Coder needs to know EXACTLY what code to write in existing files
+- DO NOT instruct the Coder to create TODO lists or description files - instruct them to write REAL WORKING CODE""" + (UNCENSORED_ADDENDUM if UNCENSORED else "")
 
     def decompose(self, task: str, repo_ctx: str = "",
                   tool_ctx: str = "", tokens_budget: int = 2048) -> dict:
@@ -1415,7 +1419,7 @@ IMPORTANT:
                    if tool_ctx else "")
                 + (f"REPOSITORY CONTEXT:\n{repo_ctx[:20000]}\n\n"
                    if repo_ctx else "")
-                + "Produce the JSON execution plan."
+                + "Produce the JSON execution plan. Remember: the Coder will write REAL CODE based on your instructions, not descriptions."
             )},
         ]
         raw, tokens = call_model(messages, MODEL_PLANNER, tokens_budget)
@@ -1463,33 +1467,40 @@ IMPORTANT:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 13. CODER AGENT
+# 13. CODER AGENT — ИСПРАВЛЕНО
 # ─────────────────────────────────────────────────────────────────────────────
 class CoderAgent:
     SYSTEM = """You are an expert software engineer. Your role is to:
 1. Read the execution plan carefully
-2. Write clean, production-ready code for each step
+2. Write clean, production-ready CODE for each step
 3. Follow existing code style and patterns from the repository
 4. Include error handling and documentation
 5. When modifying existing files, output the COMPLETE updated file content
 
+CRITICAL INSTRUCTIONS:
+- You MUST write ACTUAL WORKING CODE, NOT descriptions or TODO lists
+- NEVER create files like "output.py" with descriptions of what to do
+- ALWAYS output COMPLETE, RUNNABLE code files
+- For each file in the plan, output the FULL working code
+
 For each file, output:
 ```filename: path/to/file.ext
-[complete file content here - FULL file, not just changes]
+[COMPLETE WORKING CODE HERE - NOT descriptions, NOT TODO lists, REAL CODE]
 ```
 
 IMPORTANT: 
-- For NEW files (action="create"): create the complete new file from scratch
+- For NEW files (action="create"): create the complete new file from scratch with REAL CODE
 - For EXISTING files (action="modify"): 
   * First read the current content from REPOSITORY CONTEXT below
   * Apply the requested changes to the existing code
-  * Output the ENTIRE modified file with all changes applied
+  * Output the ENTIRE modified file with all changes applied and REAL CODE
   * Preserve existing code structure, imports, functions that are not being changed
-  * Do NOT output only diffs or partial changes - always output the FULL file
-- Always output complete files, never fragments or diffs
-- Be precise and thorough.
-- The repository ALREADY contains files. Whenever a file already exists in REPOSITORY CONTEXT, you MUST modify that existing file (reproduce its content and apply your changes) — never create a fresh/alternate version of an existing file, and never create a 'TODO', 'fixes', 'description', or 'changes.py' summary file that merely lists what to fix. Apply changes directly to the real existing files.
-- If a file needs to be modified but is not in REPOSITORY CONTEXT, treat it as a new file.""" \
+  * Do NOT output only diffs or partial changes - always output the FULL file with REAL CODE
+- Always output complete working files with REAL CODE, never fragments, diffs, descriptions, or TODO lists
+- Be precise and thorough with ACTUAL CODE IMPLEMENTATION
+- The repository ALREADY contains files. Whenever a file already exists in REPOSITORY CONTEXT, you MUST modify that existing file (reproduce its content and apply your changes) — never create a fresh/alternate version
+- NEVER create a file that just describes what to do - ALWAYS write the actual code that does it
+- If a file needs to be modified but is not in REPOSITORY CONTEXT, treat it as a new file with REAL CODE.""" \
         + (UNCENSORED_ADDENDUM if UNCENSORED else "")
 
     FILE_PATTERN = r'```(?:filename:\s*)?([^\n`]+)\n([\s\S]*?)```'
@@ -1500,7 +1511,22 @@ IMPORTANT:
             fname = match.group(1).strip()
             if fname.startswith("filename:"):
                 fname = fname[9:].strip()
-            files[fname] = match.group(2)
+            content = match.group(2)
+            
+            # ЗАЩИТА: проверяем, не является ли контент просто описанием задачи
+            content_lower = content.lower()
+            suspicious_patterns = [
+                "todo:", "description:", "implement:", "this file should",
+                "this script should", "создай", "напиши", "реализуй"
+            ]
+            
+            # Если файл содержит только описание (меньше 10 строк и есть подозрительные слова)
+            lines = content.strip().split('\n')
+            if len(lines) < 10 and any(pattern in content_lower[:200] for pattern in suspicious_patterns):
+                print(f"⚠️ WARNING: {fname} appears to contain only descriptions, not code. Skipping.")
+                continue
+                
+            files[fname] = content
         return files
 
     def implement(self, plan: dict, repo_ctx: str = "", tool_ctx: str = "",
@@ -1516,22 +1542,24 @@ IMPORTANT:
             action = step.get("action", "create")
             fname = step.get("file", "")
             if action == "modify":
-                file_actions.append(f"- READ existing file '{fname}' from REPOSITORY CONTEXT and apply modifications")
+                file_actions.append(f"- READ existing file '{fname}' from REPOSITORY CONTEXT and apply modifications WITH REAL CODE")
             else:
-                file_actions.append(f"- CREATE new file '{fname}'")
+                file_actions.append(f"- CREATE new file '{fname}' WITH REAL WORKING CODE")
         
         file_instructions = "\n".join(file_actions) if file_actions else ""
         
         user_msg = (
             f"EXECUTION PLAN:\n{steps_txt}\n\n"
+            + "CRITICAL: You MUST write REAL WORKING CODE. Do NOT create description files. "
+            + "Do NOT write TODO lists. Write ACTUAL CODE that runs.\n\n"
             + (f"INTERNET CONTEXT:\n{tool_ctx[:5000]}\n\n" if tool_ctx else "")
             + (f"REPOSITORY CONTEXT:\n{repo_ctx[:25000]}\n\n"
                if repo_ctx else "")
-            + (f"REVIEWER FEEDBACK (please fix):\n{feedback}\n\n"
+            + (f"REVIEWER FEEDBACK (please fix with REAL CODE):\n{feedback}\n\n"
                if feedback else "")
             + f"FILE ACTIONS REQUIRED:\n{file_instructions}\n\n"
-            + "Implement all steps. Output complete files using the "
-              "```filename: ... ``` format."
+            + "Implement all steps with REAL WORKING CODE. Output complete files using the "
+              "```filename: ... ``` format. Remember: REAL CODE, not descriptions."
         )
         messages = [
             {"role": "system", "content": self.SYSTEM},
@@ -1540,10 +1568,17 @@ IMPORTANT:
         raw, tokens = call_model(messages, MODEL_CODER,
                                  tokens_budget or MAX_TOKENS)
         files = self._parse_files(raw)
+        
+        # Если парсинг не нашел файлов с кодом, но есть сырой вывод - пытаемся спасти ситуацию
         if not files:
-            fname = plan.get("steps", [{}])[0].get("file",
-                                                   FILE_NAME or "output.txt")
-            files[fname] = raw
+            fname = plan.get("steps", [{}])[0].get("file", FILE_NAME or "output.txt")
+            # Проверяем, не является ли весь raw просто описанием
+            if "todo:" in raw.lower()[:500] or "description:" in raw.lower()[:500]:
+                print("⚠️ CRITICAL: Coder returned descriptions instead of code. Rejecting output.")
+                files = {}  # Возвращаем пустой словарь, чтобы система могла повторить попытку
+            else:
+                files[fname] = raw
+                
         return {"files": files, "_tokens": tokens, "_raw": raw}
 
     def refactor(self, files: dict, feedback: str,
@@ -1556,8 +1591,8 @@ IMPORTANT:
             {"role": "system", "content": self.SYSTEM},
             {"role": "user", "content":
              f"REFACTOR REQUEST:\n{feedback}\n\nCURRENT CODE:\n{files_txt}\n\n"
-             "Apply all requested changes and output the complete "
-             "updated files."},
+             "Apply all requested changes with REAL WORKING CODE and output the complete "
+             "updated files. Remember: write REAL CODE, not descriptions."},
         ]
         raw, tokens = call_model(messages, MODEL_CODER,
                                  tokens_budget or MAX_TOKENS)
@@ -1727,6 +1762,18 @@ class Orchestrator:
                                            code_budget)
         self.total_tokens += code_result.get("_tokens", 0)
         files = code_result.get("files", {})
+        
+        # ЗАЩИТА: если Coder вернул пустой результат или только описания, повторяем попытку
+        if not files:
+            write_progress("coding", 
+                          "⚠️ Coder returned no code files. Retrying with stricter instructions...",
+                          self.total_tokens, "coder")
+            code_result = self.coder.implement(plan, repo_ctx, tool_ctx, 
+                                              "YOU MUST WRITE REAL CODE. Previous attempt failed - you returned only descriptions. Write ACTUAL WORKING CODE NOW.",
+                                              code_budget)
+            self.total_tokens += code_result.get("_tokens", 0)
+            files = code_result.get("files", {})
+        
         self.reasoning.append({"agent": "coder", "phase": "coding",
                                "content": f"Generated {len(files)} file(s): "
                                           + ", ".join(list(files)[:10]),
@@ -1936,7 +1983,8 @@ def run_single_agent() -> dict:
     output_parts = []
 
     system_text = ("You are an expert software engineer. Write complete, "
-                   "production-ready code."
+                   "production-ready code. NEVER write descriptions or TODO lists - "
+                   "ALWAYS write REAL WORKING CODE."
                    + (UNCENSORED_ADDENDUM if UNCENSORED else ""))
     if PARENT_CONTEXT:
         system_text += f"\n\nPARENT CHAT CONTEXT:\n{PARENT_CONTEXT}"
