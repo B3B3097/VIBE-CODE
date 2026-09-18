@@ -1267,6 +1267,14 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 <div id="toast"></div>
 
 <script>
+// ── Global Error Guard ────────────────────────────────────────────────────────
+window.addEventListener('error', function(e) {
+  console.warn('[VIBE-CODE Error Guard]:', e.message || e);
+});
+window.addEventListener('unhandledrejection', function(e) {
+  console.warn('[VIBE-CODE Promise Rejection]:', e.reason || e);
+});
+
 // ── JSZip CDN ──────────────────────────────────────────────────────────────────
 const JSZIP_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
 

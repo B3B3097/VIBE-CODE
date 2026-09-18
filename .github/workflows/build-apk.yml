@@ -48,6 +48,13 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --licenses 2>/dev/null || true
+
       - name: Sync Web Application into Android Assets
         run: |
           mkdir -p android/app/src/main/assets/www
