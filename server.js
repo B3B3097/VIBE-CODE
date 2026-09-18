@@ -135,6 +135,21 @@ app.post('/api/auth/register', (req, res) => {
   });
 });
 
+app.post('/api/auth/login', (req, res) => {
+  const { username, password, token, github_token } = req.body || {};
+  const userToken = token || github_token || username || 'user_' + Date.now();
+  const user = getUserFromReq({ headers: { authorization: `Bearer ${userToken}` } });
+  res.json({
+    success: true,
+    token: userToken,
+    github_login: user.github_login,
+    is_owner: user.is_owner,
+    balance_cents: user.balance_cents,
+    balance_usd: user.balance_usd,
+    free_tier: user.free_tier
+  });
+});
+
 // Balance & Billing
 app.post('/api/balance/deduct', (req, res) => {
   const user = getUserFromReq(req);
