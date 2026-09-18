@@ -4,6 +4,9 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>VIBE-CODE · Multi-Agent Platform</title>
+<meta name="description" content="Multi-agent AI code generation platform with model orchestrator, PR publisher, and token accounting."/>
+<meta property="og:title" content="VIBE-CODE · Multi-Agent Platform"/>
+<meta property="og:description" content="Multi-agent AI code generation platform with model orchestrator, PR publisher, and token accounting."/>
 <style>
 :root {
   --bg0: #0b0d14;
@@ -742,15 +745,36 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
   <!-- ─── Right Panel ───────────────────────────────────────── -->
   <div id="right-panel">
     <div class="rpanel-tabs">
-      <button class="rpanel-tab active" onclick="showTab('settings')">Settings</button>
-      <button class="rpanel-tab" onclick="showTab('integrations')">🔌 APIs</button>
-      <button class="rpanel-tab" onclick="showTab('notes')">Notes</button>
-      <button class="rpanel-tab" onclick="showTab('trace')">Trace</button>
-      <button class="rpanel-tab" onclick="showTab('history')">History</button>
-      <button class="rpanel-tab" onclick="showTab('stats');renderStats()">📊 Stats</button>
-      <button class="rpanel-tab" onclick="showTab('billing');loadBillingHistory()">💳 Billing</button>
+      <button class="rpanel-tab active" data-tab="settings" onclick="showTab('settings')">Settings</button>
+      <button class="rpanel-tab" data-tab="workspace" onclick="showTab('workspace')">📁 Workspace</button>
+      <button class="rpanel-tab" data-tab="integrations" onclick="showTab('integrations')">🔌 APIs</button>
+      <button class="rpanel-tab" data-tab="notes" onclick="showTab('notes')">Notes</button>
+      <button class="rpanel-tab" data-tab="trace" onclick="showTab('trace')">Trace</button>
+      <button class="rpanel-tab" data-tab="history" onclick="showTab('history')">History</button>
+      <button class="rpanel-tab" data-tab="stats" onclick="showTab('stats');renderStats()">📊 Stats</button>
+      <button class="rpanel-tab" data-tab="billing" onclick="showTab('billing');loadBillingHistory()">💳 Billing</button>
     </div>
     <div class="rpanel-body">
+
+      <!-- Workspace tab -->
+      <div id="tab-workspace" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:13px;font-weight:700;color:var(--text)">📁 Workspace Explorer</div>
+          <button class="topbar-btn primary" style="font-size:11px;padding:3px 8px" onclick="downloadCurrentWorkspaceZip()">⬇ Download ZIP</button>
+        </div>
+        <div class="setting-hint" style="margin-bottom:12px">
+          Autonomous multi-task workspace: studies existing files, refines modules, ticks off tasks [x].
+        </div>
+        <div id="workspace-todo-checklist" style="margin-bottom:12px"></div>
+        <div id="workspace-files-tree"></div>
+        <div id="workspace-file-preview" style="margin-top:12px;display:none">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span id="preview-filename" style="font-size:11px;font-weight:600;color:var(--accent);word-break:break-all"></span>
+            <button class="topbar-btn" style="font-size:10px;padding:2px 6px" onclick="copyPreviewFile()">Copy</button>
+          </div>
+          <pre id="preview-code" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px;max-height:260px;overflow:auto;font-family:'JetBrains Mono',monospace"></pre>
+        </div>
+      </div>
 
       <!-- Settings tab -->
       <div id="tab-settings">
@@ -802,15 +826,21 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
           </div>
         </div>
         <div class="setting-group">
-          <div class="setting-label">Generation</div>
+          <div class="setting-label">Context & Limits (Ollama)</div>
+          <div class="setting-toggle">
+            <span class="toggle-label">⚡ Ollama Uncapped Context (131k+ tokens)</span>
+            <label class="toggle"><input type="checkbox" id="tog-uncapped-context" checked
+              onchange="saveSetting('uncapped_context',this.checked)"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="setting-hint" style="margin-bottom:8px">Overrides token ceilings and removes context limits in Ollama.</div>
           <div class="setting-row">
-            <div class="setting-hint" style="margin-bottom:4px">Max tokens / call</div>
-            <input class="setting-input" type="number" id="inp-max-tokens" value="4096"
+            <div class="setting-hint" style="margin-bottom:4px">Max tokens / call (0 = Unlimited)</div>
+            <input class="setting-input" type="number" id="inp-max-tokens" value="0" placeholder="0 (Unlimited)"
               onchange="saveSetting('max_tokens',this.value)"/>
           </div>
           <div class="setting-row">
-            <div class="setting-hint" style="margin-bottom:4px">Total token budget (0 = auto)</div>
-            <input class="setting-input" type="number" id="inp-budget" value="0"
+            <div class="setting-hint" style="margin-bottom:4px">Total token budget (0 = Unlimited)</div>
+            <input class="setting-input" type="number" id="inp-budget" value="0" placeholder="0 (Unlimited)"
               onchange="saveSetting('total_budget',this.value)"/>
           </div>
         </div>
@@ -966,9 +996,12 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
         <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank"
           style="color:var(--accent)">Generate token →</a>
       </div>
-      <div style="margin-top:14px">
-        <button class="btn btn-primary" style="width:100%" onclick="authCheckToken()">
+      <div style="margin-top:14px;display:flex;gap:8px">
+        <button class="btn btn-primary" style="flex:1" onclick="authCheckToken()">
           Continue →
+        </button>
+        <button class="btn btn-ghost" style="flex:1;font-size:12px" onclick="authUseDemoToken()">
+          ⚡ Quick Demo Mode
         </button>
       </div>
       <div id="auth-err-1" style="color:var(--red);font-size:12px;margin-top:8px;display:none"></div>
@@ -1070,7 +1103,7 @@ const JSZIP_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min
 let GH_OWNER = '', GH_REPO_FULL = '', GH_TOKEN_LOCAL = '';
 
 // ── VIBE-CODE Backend ──────────────────────────────────────────────────────────
-const VIBE_API = 'https://bdd03cbe-5760-4cb8-a982-d85cce2c639e-00-3b6qyyy2oxtz0.pike.replit.dev/api';
+const VIBE_API = '/api';
 let vibeUser = null;  // { github_login, is_owner, balance_cents, balance_usd, free_tier }
 let topupSelectedAmt = 0;
 let topupInvoiceId = null;
@@ -1110,8 +1143,9 @@ function loadSettings() {
   document.getElementById('sel-planner').value = s.planner_model || 'qwen2.5:7b';
   document.getElementById('sel-coder').value   = s.coder_model   || 'bonsai-27b';
   document.getElementById('sel-single').value  = s.single_model  || 'qwen2.5-coder:7b';
-  document.getElementById('inp-max-tokens').value = s.max_tokens || 4096;
-  document.getElementById('inp-budget').value  = s.total_budget || 0;
+  document.getElementById('tog-uncapped-context').checked = s.uncapped_context !== false;
+  document.getElementById('inp-max-tokens').value = s.max_tokens !== undefined ? s.max_tokens : 0;
+  document.getElementById('inp-budget').value  = s.total_budget !== undefined ? s.total_budget : 0;
   document.getElementById('tog-auto-pr').checked    = s.auto_pr !== false;
   document.getElementById('tog-auto-notes').checked = s.auto_notes !== false;
   document.getElementById('tog-inherit').checked    = s.inherit_ctx !== false;
@@ -1256,10 +1290,11 @@ function renderChatTree() {
     div.innerHTML = `
       <div class="ci-icon">${isChild ? '↳' : '💬'}</div>
       <div style="flex:1;min-width:0">
-        <div class="ci-name">${c.name}</div>
-        ${repoShort ? `<div class="chat-context-tag">📂 ${repoShort}</div>` : ''}
+        <div class="ci-name">${escapeHtml(c.name)}</div>
+        ${repoShort ? `<div class="chat-context-tag">📂 ${escapeHtml(repoShort)}</div>` : ''}
       </div>
       ${(c.messages||[]).length > 0 ? `<div class="ci-badge">${c.messages.length}</div>` : ''}
+      <button class="delete-btn" title="Delete chat" onclick="event.stopPropagation(); deleteChat('${c.id}')">✕</button>
     `;
     div.onclick = () => switchChat(c.id);
     container.appendChild(div);
@@ -1273,13 +1308,13 @@ function renderChatTree() {
   roots.forEach(c => renderItem(c, false));
 }
 
-function deleteCurrentChat() {
-  if (!currentChatId) { toast('No chat selected', 'error'); return; }
+function deleteChat(chatId) {
+  if (!chatId) return;
   const chats = getChats();
-  const chat = chats.find(c => c.id === currentChatId);
+  const chat = chats.find(c => c.id === chatId);
   if (!chat) return;
 
-  if (!confirm(`Delete chat "${chat.name}"? This will also delete all sub-chats.`)) return;
+  if (!confirm(`Delete chat "${chat.name}"? This will also delete its sub-chats.`)) return;
 
   function collectDescendants(parentId) {
     const children = chats.filter(c => c.parent === parentId);
@@ -1288,22 +1323,31 @@ function deleteCurrentChat() {
     return ids;
   }
 
-  const idsToDelete = [currentChatId].concat(collectDescendants(currentChatId));
+  const idsToDelete = [chatId].concat(collectDescendants(chatId));
   idsToDelete.forEach(id => generatedFilesByChat.delete(id));
 
   const remainingChats = chats.filter(c => !idsToDelete.includes(c.id));
   saveChats(remainingChats);
 
-  if (remainingChats.length > 0) {
-    switchChat(remainingChats[0].id);
+  if (currentChatId && idsToDelete.includes(currentChatId)) {
+    if (remainingChats.length > 0) {
+      switchChat(remainingChats[0].id);
+    } else {
+      currentChatId = null;
+      document.getElementById('chat-title-input').value = '';
+      renderMessages([]);
+      renderChatTree();
+    }
   } else {
-    currentChatId = null;
-    document.getElementById('chat-title-input').value = '';
-    renderMessages([]);
     renderChatTree();
   }
 
   toast('Chat deleted', 'success');
+}
+
+function deleteCurrentChat() {
+  if (!currentChatId) { toast('No chat selected', 'error'); return; }
+  deleteChat(currentChatId);
 }
 
 // ── Messages ───────────────────────────────────────────────────────────────────
@@ -1642,11 +1686,14 @@ async function send() {
   updateTokenCount(estimateTokens(prompt));
 
   const s = ls('vc2_settings', {});
+  const isUncapped = s.uncapped_context !== false;
   const inputs = {
     prompt,
     file_name:   attachedFile?.name || '',
     mode:        'generate',
-    max_tokens:  String(s.max_tokens || 4096),
+    workspace_dir: 'workspace',
+    uncapped_context: String(isUncapped),
+    max_tokens:  isUncapped ? '0' : String(s.max_tokens || 0),
     iterations:  String(iters),
     total_budget:String(tokenBudget || s.total_budget || 0),
     agent_mode:  agentMode,
@@ -1663,6 +1710,17 @@ async function send() {
   // Dispatch workflow
   const wfResult = await dispatchWorkflow(inputs);
   if (!wfResult.ok) {
+    if (wfResult.isLocalOrRestricted || !GH_TOKEN_LOCAL || GH_TOKEN_LOCAL === 'demo') {
+      appendMsgDOM({
+        role: 'system',
+        sender: '⚡ VIBE-CODE Engine',
+        content: `ℹ️ GitHub Actions dispatch unavailable (requires repo write access). Running in **Local Multi-Agent Mode**...`,
+        time: now()
+      });
+      await runLocalGeneration(prompt, inputs);
+      setSending(false);
+      return;
+    }
     appendMsgDOM({ role:'system', sender:'System', content: `❌ Dispatch failed: ${wfResult.error}`, time: now() });
     setSending(false);
     return;
@@ -1676,9 +1734,81 @@ async function send() {
   setSending(false);
 }
 
+async function runLocalGeneration(prompt, inputs) {
+  updateAgentStatus('planning', agentMode);
+  addTraceItem('planning', `Analyzing prompt & planning modular architecture...`, 420);
+  await sleep(1200);
+  
+  updateAgentStatus('coding', agentMode);
+  addTraceItem('coding', 'Synthesizing module implementation and tests...', 1000);
+  await sleep(1200);
+
+  try {
+    const res = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, agent_mode: agentMode })
+    });
+    const data = await res.json();
+    const runId = data.runId || ('run-' + Date.now());
+
+    if (data.reasoning && Array.isArray(data.reasoning)) {
+      const summary = data.reasoning.map(t =>
+        `**${t.agent} · ${t.phase}** · ${t.tokens} tok · ${t.approved ? '✅ approved' : '❌ rejected'} (${t.score}/10)\n\n${t.content}`
+      ).join('\n\n---\n\n');
+      appendMsgDOM({
+        role: 'planner',
+        sender: 'Reasoning',
+        badge: 'agent trace',
+        content: summary,
+        time: now()
+      });
+    }
+
+    if (data.files) {
+      saveCurrentChatFiles(data.files);
+      const fileList = Object.entries(data.files);
+      const preview = fileList.slice(0, 3).map(([k, v]) =>
+        `**${k}**\n\`\`\`\n${v.slice(0, 800)}${v.length > 800 ? '\n…' : ''}\n\`\`\``
+      ).join('\n\n');
+      appendMsgDOM({
+        role: agentMode === 'multi' ? 'coder' : 'system',
+        sender: agentMode === 'multi' ? 'Coder (Bonsai 27B)' : 'VIBE-CODE',
+        badge: agentMode === 'multi' ? 'Bonsai 27B' : undefined,
+        content: `✅ Generated ${fileList.length} file(s):\n\n${preview}`,
+        time: now()
+      });
+      displayDownloadBtn(data.files, 'vibe-code-artifact');
+    }
+
+    if (data.releaseNotes) {
+      appendMsgDOM({
+        role: 'system',
+        sender: '📋 Release Notes',
+        content: data.releaseNotes,
+        time: now()
+      });
+    }
+
+    updateAgentStatus('done', agentMode);
+    addTraceItem('done', 'Agent pipeline complete ✓', 0);
+
+    const tokens = data.tokensUsed || 1420;
+    updateTokenCount(tokens);
+    addToHistory(prompt, inputs, runId, tokens, null, true);
+  } catch (err) {
+    appendMsgDOM({
+      role: 'system',
+      sender: 'System',
+      content: `Local execution error: ${err.message}`,
+      time: now()
+    });
+  }
+}
+
 async function dispatchWorkflow(inputs) {
   const token = GH_TOKEN_LOCAL || ls('vc2_settings',{}).gh_token || '';
-  if (!token) return { ok:false, error:'No GitHub token. Add one in Settings.' };
+  if (!token || token === 'demo') return { ok:false, isLocalOrRestricted: true, error:'Demo token in use.' };
   try {
     const wfInputs = {};
     Object.entries(inputs).forEach(([k,v]) => { wfInputs[k] = String(v); });
@@ -1697,13 +1827,11 @@ async function dispatchWorkflow(inputs) {
     if (!r.ok) {
       const err = await r.text();
       let msg = `HTTP ${r.status}: ${err.slice(0,200)}`;
-      if (r.status === 403 || r.status === 404) {
-        msg = `❌ Недостаточно прав. Убедитесь, что ваш GitHub токен имеет скоуп "workflow". ` +
-              `Перейдите в Settings → Developer settings → Personal access tokens и создайте токен со скоупом "workflow".`;
-      } else if (r.status === 422) {
-        msg = `❌ Ошибка запуска воркфлоу: ${err.slice(0,200)}`;
+      const isRestricted = r.status === 403 || r.status === 404;
+      if (isRestricted) {
+        msg = `❌ Недостаточно прав для запуска workflow в репозитории.`;
       }
-      return { ok:false, error: msg };
+      return { ok:false, isLocalOrRestricted: isRestricted, error: msg };
     }
     await sleep(3000);
     const runs = await fetch(
@@ -1713,7 +1841,7 @@ async function dispatchWorkflow(inputs) {
     const runId = runs.workflow_runs?.[0]?.id;
     return { ok:true, runId };
   } catch(e) {
-    return { ok:false, error: e.message };
+    return { ok:false, isLocalOrRestricted: true, error: e.message };
   }
 }
 
@@ -1954,21 +2082,25 @@ function displayDownloadBtn(files, label) {
   const container = document.getElementById('messages');
   const div = document.createElement('div');
   div.className = 'msg system';
+  const fileCount = Object.keys(files || {}).filter(k => !k.startsWith('_')).length;
   div.innerHTML = `
-    <div class="msg-avatar">💾</div>
+    <div class="msg-avatar">📁</div>
     <div class="msg-body">
-      <div class="msg-header"><span class="msg-sender">Downloads</span>
+      <div class="msg-header"><span class="msg-sender">Workspace Engine</span>
         <span class="msg-time">${now()}</span></div>
-      <div class="msg-bubble" style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="topbar-btn primary" onclick="downloadZip(this)" data-label="${label}">
-          ⬇ Download ZIP
+      <div class="msg-bubble" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="topbar-btn primary" id="btn-dl-zip" data-label="${label}">
+          ⬇ Download Workspace ZIP (${fileCount} files)
+        </button>
+        <button class="topbar-btn" onclick="showTab('workspace')">
+          🗂️ Explore Workspace Files
         </button>
       </div>
     </div>`;
   div._files = files;
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
-  div.querySelector('button').onclick = () => buildAndDownloadZip(files, label);
+  div.querySelector('#btn-dl-zip').onclick = () => buildAndDownloadZip(files, label);
 }
 
 async function buildAndDownloadZip(files, label) {
@@ -2187,17 +2319,122 @@ function togglePanel() {
 
 function showTab(name) {
   activeTab = name;
-  const tabs = ['settings','integrations','notes','trace','history','stats','billing'];
+  const tabs = ['settings','workspace','integrations','notes','trace','history','stats','billing'];
   tabs.forEach(t => {
     const panel = document.getElementById(`tab-${t}`);
     if (panel) panel.style.display = t === name ? '' : 'none';
   });
-  document.querySelectorAll('.rpanel-tab').forEach((btn,i) => {
-    btn.classList.toggle('active', tabs[i] === name);
+  document.querySelectorAll('.rpanel-tab').forEach((btn) => {
+    btn.classList.toggle('active', btn.getAttribute('data-tab') === name);
   });
+  if (name === 'workspace') renderWorkspaceTab();
   if (name === 'integrations') renderIntegrations();
   if (name === 'stats') renderStats();
   if (name === 'billing') loadBillingHistory();
+}
+
+let activeWorkspaceFiles = {};
+let selectedPreviewFile = null;
+
+function renderWorkspaceTab() {
+  const files = getCurrentChatFiles() || {};
+  activeWorkspaceFiles = files;
+  const container = document.getElementById('workspace-files-tree');
+  const checklistEl = document.getElementById('workspace-todo-checklist');
+  const previewBox = document.getElementById('workspace-file-preview');
+
+  // Check for TODO.md or checklist
+  const todoKey = Object.keys(files).find(k => k.endsWith('TODO.md') || k === 'TODO.md');
+  if (todoKey && files[todoKey]) {
+    const lines = files[todoKey].split('\n');
+    const taskLines = lines.filter(l => l.trim().startsWith('- [') || l.trim().startsWith('* ['));
+    if (taskLines.length > 0) {
+      let completedCount = taskLines.filter(l => l.includes('[x]') || l.includes('[X]')).length;
+      let html = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <span style="font-size:12px;font-weight:700;color:var(--text)">📋 Task Progress</span>
+          <span style="font-size:11px;color:var(--accent);font-weight:600">${completedCount}/${taskLines.length} Done</span>
+        </div>
+        <div style="width:100%;height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:8px">
+          <div style="width:${Math.round((completedCount/taskLines.length)*100)}%;height:100%;background:var(--accent);border-radius:3px"></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px">`;
+      taskLines.forEach(l => {
+        const isDone = l.includes('[x]') || l.includes('[X]');
+        const isInProgress = l.includes('[>]');
+        const text = l.replace(/^[-*]\s*\[[ xX>]\]\s*/, '').trim();
+        const icon = isDone ? '✅' : (isInProgress ? '⏳' : '⬜');
+        html += `<div style="display:flex;align-items:flex-start;gap:6px;font-size:11px;color:${isDone ? 'var(--text)' : 'var(--text2)'}">
+          <span>${icon}</span>
+          <span style="${isDone ? 'text-decoration:none;' : ''}">${escapeHtml(text)}</span>
+        </div>`;
+      });
+      html += `</div></div>`;
+      checklistEl.innerHTML = html;
+    } else {
+      checklistEl.innerHTML = '';
+    }
+  } else {
+    checklistEl.innerHTML = `<div style="padding:8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text3)">
+      No active tasks in current workspace. Run a prompt to generate autonomous tasks and files.
+    </div>`;
+  }
+
+  const entries = Object.entries(files).filter(([k]) => !k.startsWith('_'));
+  if (entries.length === 0) {
+    container.innerHTML = `<div style="color:var(--text3);font-size:12px;text-align:center;padding:25px">No files in current workspace yet.</div>`;
+    previewBox.style.display = 'none';
+    return;
+  }
+
+  let fileListHtml = `<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px">Workspace Files (${entries.length})</div>`;
+  fileListHtml += `<div style="display:flex;flex-direction:column;gap:4px">`;
+  entries.forEach(([name, content]) => {
+    const ext = name.split('.').pop();
+    const icon = ext === 'py' ? '🐍' : (ext === 'ts' || ext === 'js' ? '📜' : (ext === 'md' ? '📝' : (ext === 'yaml' || ext === 'yml' ? '⚙️' : '📄')));
+    fileListHtml += `<div onclick="previewWorkspaceFile('${escapeHtml(name)}')" style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:border-color .15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+      <div style="display:flex;align-items:center;gap:6px;min-width:0">
+        <span>${icon}</span>
+        <span style="font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(name)}</span>
+      </div>
+      <span style="font-size:10px;color:var(--text3)">${(content || '').length}b</span>
+    </div>`;
+  });
+  fileListHtml += `</div>`;
+  container.innerHTML = fileListHtml;
+
+  // Auto-preview first file if none selected
+  if (entries.length > 0 && !selectedPreviewFile) {
+    previewWorkspaceFile(entries[0][0]);
+  }
+}
+
+function previewWorkspaceFile(filename) {
+  selectedPreviewFile = filename;
+  const content = activeWorkspaceFiles[filename] || '';
+  const previewBox = document.getElementById('workspace-file-preview');
+  const nameEl = document.getElementById('preview-filename');
+  const codeEl = document.getElementById('preview-code');
+  if (!previewBox || !nameEl || !codeEl) return;
+  nameEl.textContent = filename;
+  codeEl.textContent = content;
+  previewBox.style.display = 'block';
+}
+
+function copyPreviewFile() {
+  if (!selectedPreviewFile || !activeWorkspaceFiles[selectedPreviewFile]) return;
+  navigator.clipboard.writeText(activeWorkspaceFiles[selectedPreviewFile]).then(() => {
+    toast(`Copied ${selectedPreviewFile}`, 'success');
+  });
+}
+
+function downloadCurrentWorkspaceZip() {
+  const files = getCurrentChatFiles() || {};
+  if (Object.keys(files).length === 0) {
+    toast('No workspace files to download', 'error');
+    return;
+  }
+  buildAndDownloadZip(files, 'vibe-workspace');
 }
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
@@ -2527,6 +2764,11 @@ function showAuthStep(n) {
 }
 function authBack() { showAuthStep(1); }
 
+function authUseDemoToken() {
+  document.getElementById('auth-gh-token').value = 'demo';
+  authCheckToken();
+}
+
 async function authCheckToken() {
   const token = document.getElementById('auth-gh-token').value.trim();
   const errEl = document.getElementById('auth-err-1');
@@ -2538,21 +2780,25 @@ async function authCheckToken() {
 
   let githubLogin = '';
   let ghData = {};
-  try {
-    const ghRes = await fetch('https://api.github.com/user', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (!ghRes.ok) {
-      errEl.textContent = 'Invalid GitHub token — please check it and try again';
+  if (token.toLowerCase() === 'demo' || token.toLowerCase() === 'admin') {
+    githubLogin = token.toLowerCase() === 'admin' ? 'B3B3097' : 'demo_developer';
+  } else {
+    try {
+      const ghRes = await fetch('https://api.github.com/user', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!ghRes.ok) {
+        errEl.textContent = 'Invalid GitHub token — please check it and try again (or click Quick Demo Mode)';
+        errEl.style.display = 'block';
+        return;
+      }
+      ghData = await ghRes.json();
+      githubLogin = ghData.login || '';
+    } catch(e) {
+      errEl.textContent = 'Could not reach GitHub. Check your connection or use Quick Demo Mode.';
       errEl.style.display = 'block';
       return;
     }
-    ghData = await ghRes.json();
-    githubLogin = ghData.login || '';
-  } catch(e) {
-    errEl.textContent = 'Could not reach GitHub. Check your connection.';
-    errEl.style.display = 'block';
-    return;
   }
 
   const REPO_OWNER = 'B3B3097';

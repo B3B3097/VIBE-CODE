@@ -1,9 +1,86 @@
-  type: "text-generation"
-  parameters:
-    max_tokens: 1024
-    temperature: 0.2
-    top_p: 0.95
-    stream: true
-    stop_sequences:
-      - "\n\n"
+# VIBE-CODE Engine Configuration
+# Fully autonomous workspace architecture with uncapped Ollama context
 
+version: "2.1.0"
+
+workspace:
+  root: "./workspace"
+  auto_create: true
+  preserve_existing: true
+  read_existing_before_generation: true
+  supported_extensions:
+    - ".py"
+    - ".js"
+    - ".ts"
+    - ".jsx"
+    - ".tsx"
+    - ".html"
+    - ".css"
+    - ".json"
+    - ".yaml"
+    - ".yml"
+    - ".md"
+    - ".sql"
+    - ".sh"
+  exclude_patterns:
+    - "node_modules/**"
+    - ".git/**"
+    - "__pycache__/**"
+    - "dist/**"
+    - ".next/**"
+
+context:
+  uncapped: true
+  ollama_num_ctx: 131072
+  num_predict: -1
+  max_tokens_per_call: 0  # 0 = unlimited
+  temperature: 0.2
+  top_p: 0.95
+  stream: true
+
+autonomous_agent:
+  mode: "workspace_task_loop"  # "single" | "multi" | "workspace_task_loop"
+  max_runtime_hours: 12
+  enable_checklist: true
+  todo_file: "workspace/TODO.md"
+  tasks_yaml: "tasks.yaml"
+  auto_inspect_existing_files: true
+  allow_file_modifications: true
+  allow_file_creations: true
+  prohibit_single_file_shortcuts: true # Never just output a single dummy output.py/opmint.py
+
+models:
+  planner:
+    name: "qwen2.5:7b"
+    role: "Architect & Task Planner"
+    num_ctx: 131072
+  coder:
+    name: "bonsai-27b"
+    role: "Workspace Engineer & File Refiner"
+    num_ctx: 131072
+  single:
+    name: "qwen2.5-coder:7b"
+    role: "Full-Stack Developer"
+    num_ctx: 131072
+  reviewer:
+    name: "qwen2.5-coder:7b"
+    role: "Syntax, Verification & Test Auditor"
+    num_ctx: 131072
+
+pipeline:
+  stages:
+    - id: "inspect"
+      name: "Workspace Exploration"
+      description: "Scan all created and existing files in workspace"
+    - id: "plan"
+      name: "Task Decomposition"
+      description: "Create comprehensive checklist in TODO.md and tasks.yaml"
+    - id: "execute_loop"
+      name: "Iterative Task Execution Loop"
+      description: "Study files, refine existing, create new, tick checkboxes [x]"
+    - id: "verify"
+      name: "Verification & Testing"
+      description: "Audit syntax, run tests, verify checklist completeness"
+    - id: "package"
+      name: "Packaging & Notes"
+      description: "Generate release notes, diff summary, and export ZIP"

@@ -1,0 +1,61 @@
+# Multi-Agent Pipeline Definition
+# Orchestrates Planner, Workspace Inspector, Iterative Coder, and Tester
+
+pipeline_id: "vibe-workspace-autonomous"
+description: "Long-running autonomous agent pipeline with uncapped context and workspace-aware file refinement"
+
+agents:
+  inspector:
+    name: "Workspace Inspector"
+    model: "qwen2.5:7b"
+    role: "Scans repository and workspace, catalogs file exports, functions, schemas, and dependencies"
+    num_ctx: 131072
+    tools:
+      - "list_directory"
+      - "read_file"
+      - "grep_code"
+
+  planner:
+    name: "Master Architect & Planner"
+    model: "qwen2.5:7b"
+    role: "Formulates comprehensive TODO.md with 10-50 granular tasks with [ ] checkboxes"
+    num_ctx: 131072
+    output: "workspace/TODO.md"
+
+  coder:
+    name: "Iterative Workspace Engineer"
+    model: "bonsai-27b"
+    role: "Reads context of existing files, refines existing code, writes new modular files, never creates single-file dummies"
+    num_ctx: 131072
+    execution_policy: "iterative_task_loop"
+    max_continuous_hours: 12
+
+  auditor:
+    name: "Quality & Test Auditor"
+    model: "qwen2.5-coder:7b"
+    role: "Runs linting, executes test suites, updates checkboxes from [ ] to [x], logs reasoning traces"
+    num_ctx: 131072
+
+  publisher:
+    name: "Release & PR Agent"
+    model: "qwen2.5:7b"
+    role: "Summarizes completed tasks, outputs release notes, and stages Pull Requests"
+    num_ctx: 131072
+
+workflow:
+  on_start:
+    - action: "mkdir -p workspace"
+    - action: "inspect_workspace"
+  loop:
+    until: "all_tasks_checked_or_budget_exhausted"
+    steps:
+      - "select_next_pending_task"
+      - "mark_task_in_progress"
+      - "load_related_workspace_files"
+      - "generate_or_refine_code"
+      - "verify_syntax_and_tests"
+      - "mark_task_completed_checkbox"
+      - "save_state_checkpoint"
+  on_finish:
+    - action: "generate_release_notes"
+    - action: "package_workspace_zip"

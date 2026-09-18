@@ -1,0 +1,8 @@
+{
+  "name": "VIBE-CODE",
+  "description": "Multi-agent AI code generation platform with model orchestrator, PR publisher, and token accounting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
