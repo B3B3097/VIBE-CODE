@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.VibeCode" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#6366f1</item>
+        <item name="colorPrimaryVariant">#4f46e5</item>
+        <item name="colorOnPrimary">#ffffff</item>
+        <item name="android:statusBarColor">#0f172a</item>
+        <item name="android:navigationBarColor">#0f172a</item>
+    </style>
+</resources>
