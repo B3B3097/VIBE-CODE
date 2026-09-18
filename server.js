@@ -469,6 +469,22 @@ app.post('/api/generate', (req, res) => {
   });
 });
 
+// ── Android APK Status ─────────────────────────────────────────────────────
+app.get('/api/android/info', (req, res) => {
+  const workflowPath = path.join(__dirname, '.github', 'workflows', 'build-apk.yml');
+  const androidDir = path.join(__dirname, 'android');
+  res.json({
+    ok: true,
+    version: '2.0.0',
+    packageName: 'dev.vibecode.app',
+    workflowFile: '.github/workflows/build-apk.yml',
+    workflowExists: fs.existsSync(workflowPath),
+    androidProjectExists: fs.existsSync(androidDir),
+    releasesUrl: 'https://github.com/B3B3097/VIBE-CODE/releases',
+    actionsUrl: 'https://github.com/B3B3097/VIBE-CODE/actions/workflows/build-apk.yml'
+  });
+});
+
 // ── Static Files ───────────────────────────────────────────────────────────
 app.use(express.static(__dirname));
 
