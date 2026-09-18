@@ -289,10 +289,29 @@
         let editingId = null;
         
         // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            await fetchUsersFromApi();
             loadUsers();
             updateStats();
         });
+
+        async function fetchUsersFromApi() {
+            try {
+                const res = await fetch('/api/admin/users');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.users && data.users.length > 0) {
+                        users = data.users.map(u => ({
+                            id: u.id,
+                            username: u.github_login || u.username,
+                            email: u.email || `${u.github_login}@vibecode.dev`,
+                            balance: typeof u.balance === 'number' ? u.balance : (u.balance_cents ? u.balance_cents / 100 : 0),
+                            status: u.status || 'active'
+                        }));
+                    }
+                }
+            } catch {}
+        }
         
         // Form submission
         document.getElementById('userForm').addEventListener('submit', function(e) {
