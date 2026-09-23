@@ -39,12 +39,10 @@ def run_cmd(cmd: list, token: str = "") -> subprocess.CompletedProcess:
 
 
 def ensure_git_setup():
-    # Ensure git repo is initialized
     is_git = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True)
     if is_git.returncode != 0:
         subprocess.run(["git", "init", "-b", "main"], capture_output=True)
 
-    # Ensure user credentials configured
     user_name = subprocess.run(["git", "config", "user.name"], capture_output=True, text=True).stdout.strip()
     if not user_name:
         subprocess.run(["git", "config", "user.name", "B3B3097"], capture_output=True)
@@ -79,18 +77,21 @@ def main():
         else:
             run_cmd(["git", "remote", "set-url", "origin", auth_remote], token)
 
-        # Ensure latest main
+        # Ensure latest remote state is fetched
         print("📥 Fetching latest remote state...")
         fetch = run_cmd(["git", "fetch", "origin", "main"], token)
         if fetch.returncode == 0:
-            subprocess.run(["git", "merge", "--no-edit", "origin/main"], capture_output=True)
+            merge_cmd = subprocess.run(["git", "merge", "--no-edit", "--allow-unrelated-histories", "origin/main"], capture_output=True, text=True)
+            if merge_cmd.returncode != 0:
+                subprocess.run(["git", "checkout", "--ours", "."], capture_output=True)
+                subprocess.run(["git", "add", "-A"], capture_output=True)
+                subprocess.run(["git", "commit", "-m", "chore: resolve sync merge differences"], capture_output=True)
 
         # Push branch
         print("📤 Pushing local commits to origin main...")
         push = run_cmd(["git", "push", "origin", "HEAD:main"], token)
         if push.returncode == 0:
             print("✅ Successfully pushed commits to https://github.com/B3B3097/VIBE-CODE")
-            # Also push tags
             run_cmd(["git", "push", "origin", "--tags"], token)
             print("🏷️ Pushed release tags to GitHub.")
         else:
