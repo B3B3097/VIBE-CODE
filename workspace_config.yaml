@@ -1,0 +1,43 @@
+# Workspace Environment & Inspection Configuration
+# Controls how the agent inspects, modifies, and evolves files in the workspace
+
+workspace_settings:
+  directory: "workspace"
+  initial_structure:
+    - "workspace/src"
+    - "workspace/tests"
+    - "workspace/docs"
+    - "workspace/config"
+  
+  inspection_policy:
+    study_before_code: true
+    read_full_files: true
+    token_budget_for_reading: 100000  # enabled thanks to uncapped context
+    extract_symbols: true
+    track_dependencies: true
+
+  file_handling:
+    prohibit_dummy_fallback: true
+    disallow_single_file_shortcuts:
+      - "opmint.py"
+      - "output.py"
+      - "dummy.py"
+    require_modular_design: true
+    prefer_in_place_refinement: true
+    create_missing_directories: true
+
+  task_tracking:
+    todo_markdown: "workspace/TODO.md"
+    tasks_schema: "tasks.yaml"
+    format: "markdown_and_yaml"
+    status_markers:
+      pending: "[ ]"
+      in_progress: "[>]"
+      completed: "[x]"
+      failed: "[!]"
+
+  continuous_execution:
+    max_duration_hours: 12
+    iteration_delay_seconds: 2
+    save_checkpoint_every_task: true
+    report_progress_on_tick: true

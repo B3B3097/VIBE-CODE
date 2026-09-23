@@ -1,0 +1,80 @@
+# Autonomous Task Execution Blueprint
+# Automatically loaded, expanded, and ticked off [x] by VIBE-CODE Agent
+
+version: 1
+project_title: "Autonomous Workspace Execution"
+overall_progress: 0.0
+total_tasks: 6
+completed_tasks: 0
+
+tasks:
+  - id: "TASK-001"
+    name: "Workspace Exploration & Environment Mapping"
+    phase: "inspect"
+    description: "Inspect existing codebase, directory tree, dependencies and imports."
+    target_files:
+      - "workspace/"
+      - "README.md"
+    status: "pending"
+    checked: false
+    checkbox: "[ ]"
+    priority: 1
+
+  - id: "TASK-002"
+    name: "Task Decomposition & Architecture Plan"
+    phase: "plan"
+    description: "Decompose user requirements into modular sub-tasks and write TODO.md."
+    target_files:
+      - "workspace/TODO.md"
+      - "tasks.yaml"
+    status: "pending"
+    checked: false
+    checkbox: "[ ]"
+    priority: 2
+
+  - id: "TASK-003"
+    name: "Core Data Models & Types Implementation"
+    phase: "execute"
+    description: "Implement data structures, state models, and interfaces in appropriate files."
+    target_files:
+      - "workspace/src/models.py"
+      - "workspace/src/types.ts"
+    status: "pending"
+    checked: false
+    checkbox: "[ ]"
+    priority: 3
+
+  - id: "TASK-004"
+    name: "Service & Business Logic Implementation"
+    phase: "execute"
+    description: "Refine existing files and create modular controllers/services."
+    target_files:
+      - "workspace/src/service.py"
+      - "workspace/src/engine.py"
+    status: "pending"
+    checked: false
+    checkbox: "[ ]"
+    priority: 4
+
+  - id: "TASK-005"
+    name: "Test Suite & Verification"
+    phase: "verify"
+    description: "Develop automated unit and integration tests for all generated modules."
+    target_files:
+      - "workspace/tests/test_core.py"
+    status: "pending"
+    checked: false
+    checkbox: "[ ]"
+    priority: 5
+
+  - id: "TASK-006"
+    name: "Release Documentation & Summary"
+    phase: "package"
+    description: "Compile release notes, execution traces, and package workspace."
+    target_files:
+      - "workspace/README.md"
+      - "_release_notes.md"
+    status: "pending"
+    checked: false
+    checkbox: "[ ]"
+    priority: 6

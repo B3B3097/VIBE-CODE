@@ -1,0 +1,34 @@
+name: Build and Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify Python syntax
+        run: |
+          for f in *.py; do
+            python3 -m py_compile "$f" && echo "\u2705 $f syntax OK"
+          done
+
+      - name: Verify index.html exists
+        run: |
+          test -f index.html && echo "\u2705 index.html present" || exit 1
+
+      - name: Show repo tree
+        run: ls -la

@@ -1,0 +1,289 @@
+[
+  {
+    "name": "web_search",
+    "description": "Google/DuckDuckGo web search",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "brave_search",
+    "description": "Brave Search API",
+    "free": false,
+    "key": "BRAVE_API_KEY",
+    "active": false
+  },
+  {
+    "name": "wikipedia",
+    "description": "Wikipedia article summary",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "fetch_url",
+    "description": "Fetch content from any URL",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "weather",
+    "description": "Current weather by location",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "weather_forecast",
+    "description": "Multi-day weather forecast",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "news",
+    "description": "Latest news headlines",
+    "free": false,
+    "key": "NEWS_API_KEY",
+    "active": false
+  },
+  {
+    "name": "openai_chat",
+    "description": "OpenAI GPT chat",
+    "free": false,
+    "key": "OPENAI_API_KEY",
+    "active": false
+  },
+  {
+    "name": "anthropic_chat",
+    "description": "Anthropic Claude chat",
+    "free": false,
+    "key": "ANTHROPIC_API_KEY",
+    "active": false
+  },
+  {
+    "name": "groq_chat",
+    "description": "Groq fast LLM inference",
+    "free": false,
+    "key": "GROQ_API_KEY",
+    "active": false
+  },
+  {
+    "name": "together_ai",
+    "description": "Together AI models",
+    "free": false,
+    "key": "TOGETHER_API_KEY",
+    "active": false
+  },
+  {
+    "name": "huggingface_inference",
+    "description": "HuggingFace model inference",
+    "free": false,
+    "key": "HF_API_KEY",
+    "active": false
+  },
+  {
+    "name": "cohere_generate",
+    "description": "Cohere text generation",
+    "free": false,
+    "key": "COHERE_API_KEY",
+    "active": false
+  },
+  {
+    "name": "execute_code",
+    "description": "Run code (Python/JS/Go/Rust/Java/C++)",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "judge0_run",
+    "description": "Run code via Judge0",
+    "free": false,
+    "key": "JUDGE0_API_KEY",
+    "active": false
+  },
+  {
+    "name": "crypto_price",
+    "description": "Cryptocurrency price",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "stock_price",
+    "description": "Stock price quote",
+    "free": false,
+    "key": "ALPHAVANTAGE_API_KEY",
+    "active": false
+  },
+  {
+    "name": "exchange_rates",
+    "description": "Currency exchange rates",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "countries",
+    "description": "Country information",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "unsplash_search",
+    "description": "Unsplash photo search",
+    "free": false,
+    "key": "UNSPLASH_API_KEY",
+    "active": false
+  },
+  {
+    "name": "pexels_search",
+    "description": "Pexels photo search",
+    "free": false,
+    "key": "PEXELS_API_KEY",
+    "active": false
+  },
+  {
+    "name": "elevenlabs_tts",
+    "description": "ElevenLabs text-to-speech",
+    "free": false,
+    "key": "ELEVENLABS_API_KEY",
+    "active": false
+  },
+  {
+    "name": "telegram_send",
+    "description": "Send Telegram message",
+    "free": false,
+    "key": "TELEGRAM_BOT_TOKEN",
+    "active": false
+  },
+  {
+    "name": "discord_send",
+    "description": "Send Discord webhook",
+    "free": false,
+    "key": "DISCORD_WEBHOOK_URL",
+    "active": false
+  },
+  {
+    "name": "slack_send",
+    "description": "Send Slack webhook",
+    "free": false,
+    "key": "SLACK_WEBHOOK_URL",
+    "active": false
+  },
+  {
+    "name": "wolfram_query",
+    "description": "Wolfram Alpha computation",
+    "free": false,
+    "key": "WOLFRAM_API_KEY",
+    "active": false
+  },
+  {
+    "name": "translate",
+    "description": "Translate text",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "ip_info",
+    "description": "IP geolocation",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "geocode",
+    "description": "Address to coordinates",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "qr_code",
+    "description": "Generate QR code",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "dictionary",
+    "description": "Word definition",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "world_time",
+    "description": "Current time anywhere",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "uuid_generate",
+    "description": "Generate UUID",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "random_user",
+    "description": "Random user data",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "github_repo",
+    "description": "GitHub repository info",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "github_search_code",
+    "description": "Search GitHub code",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "package_info",
+    "description": "PyPI or NPM package info",
+    "free": true,
+    "key": null,
+    "active": true
+  },
+  {
+    "name": "notion_query",
+    "description": "Query Notion database",
+    "free": false,
+    "key": "NOTION_API_KEY",
+    "active": false
+  },
+  {
+    "name": "airtable_list",
+    "description": "List Airtable records",
+    "free": false,
+    "key": "AIRTABLE_API_KEY",
+    "active": false
+  },
+  {
+    "name": "stability_generate",
+    "description": "Stability AI image generation",
+    "free": false,
+    "key": "STABILITY_API_KEY",
+    "active": false
+  },
+  {
+    "name": "replicate_run",
+    "description": "Run Replicate model",
+    "free": false,
+    "key": "REPLICATE_API_KEY",
+    "active": false
+  }
+]

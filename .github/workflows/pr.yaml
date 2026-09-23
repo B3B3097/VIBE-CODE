@@ -1,0 +1,158 @@
+name: 🚀 VIBE-CODE Core Infrastructure & Auto PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch_name:
+        description: 'Имя ветки для PR'
+        required: false
+        default: 'auto/infrastructure-update'
+      trigger_generation:
+        description: 'Запустить скрипты генерации кода?'
+        type: boolean
+        required: false
+        default: true
+      model_version:
+        description: 'Версия локальной модели'
+        required: false
+        default: 'vibe-code-0.5'
+  schedule:
+    - cron: '0 2 * * 1-5' # Запуск каждую ночь по будням
+  push:
+    branches:
+      - 'feature/**'
+
+env:
+  MODEL_PATH: ./models/local_vibe
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  infrastructure-and-pr:
+    name: ⚙️ Build, Generate & PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      # 1. Забираем код
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. Настраиваем Git
+      - name: ⚙️ Setup Git User
+        run: |
+          git config --global user.name "VIBE-CODE Pipeline"
+          git config --global user.email "pipeline@vibe-code.local"
+
+      # 3. Поднимаем Python-окружение для скриптов
+      - name: 🐍 Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip' # Кэшируем зависимости для скорости
+
+      # 4. Устанавливаем зависимости
+      - name: 📦 Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Дополнительные пакеты для работы с локальной инфраструктурой
+          pip install transformers torch datasets black
+
+      # 5. Кэширование весов локальной модели (экономит кучу времени и лимитов)
+      - name: 🧠 Cache Local Model Weights
+        id: cache-model
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.MODEL_PATH }}
+          key: ${{ runner.os }}-model-${{ github.event.inputs.model_version || 'vibe-code-0.5' }}
+
+      # 6. Загрузка/Инициализация модели (если нет в кэше)
+      - name: ⚡ Initialize Model Infrastructure
+        if: steps.cache-model.outputs.cache-hit != 'true'
+        run: |
+          echo "Model cache not found. Setting up local infrastructure for ${{ github.event.inputs.model_version || 'vibe-code-0.5' }}..."
+          mkdir -p ${{ env.MODEL_PATH }}
+          # Здесь скрипт загрузки или подготовки легковесной модели
+          # python scripts/download_model.py --version ${{ github.event.inputs.model_version || '0.5' }} --dest ${{ env.MODEL_PATH }}
+
+      # 7. Миграция/синхронизация данных (подготовка перед генерацией)
+      - name: 🗄️ Migrate Storage State
+        run: |
+          echo "Synchronizing storage state before execution..."
+          # bash scripts/migrate_storage.sh || true
+
+      # 8. Запуск основной логики генерации
+      - name: 💻 Execute VIBE-CODE Generation Scripts
+        if: github.event.inputs.trigger_generation == 'true' || github.event_name == 'schedule'
+        run: |
+          echo "Running core Python automation scripts..."
+          # python generate.py --model_dir ${{ env.MODEL_PATH }}
+          mkdir -p generated_output
+          date > generated_output/latest_run_log.txt
+
+      # 9. Форматирование сгенерированного кода
+      - name: 🎨 Format Output (Black)
+        run: |
+          black . --exclude ${{ env.MODEL_PATH }}
+
+      # 10. Проверка изменений
+      - name: 🔍 Check for changes
+        id: check_changes
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      # 11. Подготовка ветки
+      - name: 🌿 Prepare Branch
+        if: steps.check_changes.outputs.has_changes == 'true'
+        env:
+          BRANCH_NAME: ${{ github.event.inputs.branch_name || 'auto/infrastructure-update' }}
+        run: |
+          if git ls-remote --heads origin $BRANCH_NAME | grep $BRANCH_NAME > /dev/null; then
+            git fetch origin $BRANCH_NAME
+            git checkout $BRANCH_NAME
+          else
+            git checkout -b $BRANCH_NAME
+          fi
+
+      # 12. Коммит и Пуш
+      - name: 💾 Commit and Push
+        if: steps.check_changes.outputs.has_changes == 'true'
+        env:
+          BRANCH_NAME: ${{ github.event.inputs.branch_name || 'auto/infrastructure-update' }}
+        run: |
+          git add .
+          git commit -m "🤖 [Auto] Infrastructure update & code generation"
+          git push -u origin $BRANCH_NAME
+
+      # 13. Создание Pull Request через GitHub CLI
+      - name: 🚀 Create Pull Request
+        if: steps.check_changes.outputs.has_changes == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH || secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          BRANCH_NAME: ${{ github.event.inputs.branch_name || 'auto/infrastructure-update' }}
+          BASE_BRANCH: main
+        run: |
+          PR_BODY="### 🚀 Automated VIBE-CODE Infrastructure Update
+
+          **Execution Details:**
+          - **Trigger:** ${{ github.event_name }}
+          - **Model Connected:** ${{ github.event.inputs.model_version || 'vibe-code-0.5' }}
+          - **Python Env:** ${{ env.PYTHON_VERSION }}
+          
+          _This PR includes automated generation outputs, formatted code, and storage state updates._"
+
+          EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --base "$BASE_BRANCH" --state open --json number --jq '.[0].number')
+          
+          if [ -z "$EXISTING_PR" ]; then
+            gh pr create --head "$BRANCH_NAME" --base "$BASE_BRANCH" --title "⚡ VIBE-CODE Output & Infrastructure Sync" --body "$PR_BODY"
+          else
+            gh pr comment $EXISTING_PR --body "🔄 **Pipeline Update:** New generation cycle completed and pushed."
+          fi

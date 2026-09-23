@@ -1,0 +1,107 @@
+name: VIBE-CODE Autonomous Workspace Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: 'What project/feature to build across the workspace'
+        required: true
+        default: 'Build modular application architecture with full tests'
+      workspace_dir:
+        description: 'Target workspace directory'
+        default: 'workspace'
+      uncapped_context:
+        description: 'Uncapped context window (131k tokens)'
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+      max_hours:
+        description: 'Maximum runtime hours (1-12)'
+        default: '6'
+      target_repo:
+        description: 'Target GitHub repo to inspect and refine'
+        default: ''
+      auto_pr:
+        description: 'Automatically create Pull Request when all tasks checked'
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+env:
+  OLLAMA_HOST: http://127.0.0.1:11434
+  OUTPUT_DIR: /tmp/vibe_output
+  WORKSPACE_DIR: ./workspace
+
+jobs:
+  workspace_agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # Up to 6 hours continuous autonomous execution
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v5
+
+      - name: Setup Python & Dependencies
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Runtime Tools
+        run: |
+          pip install -q pyyaml requests huggingface_hub
+          mkdir -p workspace /tmp/vibe_output
+
+      - name: Install & Configure Ollama (Uncapped)
+        run: |
+          curl -fsSL https://ollama.ai/install.sh | sh
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
+              echo "✅ Ollama started with uncapped context support"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Prepare Uncapped Models
+        run: |
+          echo "Preparing models with num_ctx 131072..."
+          ollama pull qwen2.5-coder:7b || echo "pulling fallback"
+          printf 'FROM qwen2.5-coder:7b\nPARAMETER num_ctx 131072\nPARAMETER num_predict -1\n' > /tmp/uncapped-modelfile
+          ollama create vibe-uncapped -f /tmp/uncapped-modelfile
+          ollama list
+
+      - name: Run Autonomous Workspace Engine
+        env:
+          PROMPT: "${{ inputs.prompt }}"
+          WORKSPACE_DIR: "${{ inputs.workspace_dir }}"
+          UNCAPPED_CONTEXT: "${{ inputs.uncapped_context }}"
+          MAX_HOURS: "${{ inputs.max_hours }}"
+          TARGET_REPO: "${{ inputs.target_repo }}"
+          AUTO_PR: "${{ inputs.auto_pr }}"
+          AGENT_MODE: "multi"
+        run: |
+          python3 generate.py
+
+      - name: Display Workspace Files & Checklists
+        if: always()
+        run: |
+          echo "=== WORKSPACE TODO CHECKLIST ==="
+          cat workspace/TODO.md 2>/dev/null || cat /tmp/vibe_output/TODO.md 2>/dev/null || echo "(No TODO.md)"
+          echo "=== WORKSPACE FILE TREE ==="
+          find workspace -type f 2>/dev/null || true
+          echo "=== RELEASE NOTES ==="
+          cat /tmp/vibe_output/_release_notes.md 2>/dev/null || echo "(No release notes)"
+
+      - name: Upload Workspace Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-build-${{ github.run_id }}
+          path: |
+            workspace/
+            /tmp/vibe_output/

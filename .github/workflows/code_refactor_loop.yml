@@ -1,0 +1,45 @@
+name: VIBE-CODE Refactor & File Evolution Loop
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_dir:
+        description: 'Directory to inspect and refine'
+        default: 'workspace'
+      refactor_goal:
+        description: 'Refactoring objective (e.g. modularize, add tests, optimize)'
+        default: 'Refactor existing workspace files, eliminate duplication, add error handling'
+      allow_new_files:
+        description: 'Allow creating new modules'
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+
+permissions:
+  contents: write
+
+jobs:
+  refactor_workspace:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Inspect Existing Files & Refactor
+        run: |
+          mkdir -p "${{ inputs.target_dir }}"
+          python3 -c "
+          import os, glob
+          target = '${{ inputs.target_dir }}'
+          print(f'Scanning {target} for code files...')
+          files = [os.path.join(r, f) for r, d, fs in os.walk(target) for f in fs]
+          print(f'Found {len(files)} existing file(s) in workspace.')
+          for f in files:
+              print(f' - {f} ({os.path.getsize(f)} bytes)')
+          "
+          python3 generate.py

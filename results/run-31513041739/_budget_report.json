@@ -1,0 +1,9 @@
+{
+  "total": 150000,
+  "used": 0,
+  "remaining": 150000,
+  "utilization_pct": 0.0,
+  "allocations": {},
+  "num_calls": 0,
+  "calls": []
+}

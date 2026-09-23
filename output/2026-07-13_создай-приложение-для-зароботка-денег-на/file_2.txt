@@ -1,0 +1,2 @@
+AD_PARTNER_URL=http://example.com/ad_partner
+FK_WALLET_API_KEY=your_fk_wallet_api_key

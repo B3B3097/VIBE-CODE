@@ -1,0 +1,24 @@
+{
+  "name": "vibe-code",
+  "version": "2.0.0",
+  "description": "Multi-agent AI code generation platform",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "echo 'No build required for static site'",
+    "lint": "node --check server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "acorn": "^8.18.0",
+    "acorn-walk": "^8.3.5",
+    "js-yaml": "^5.4.2"
+  }
+}
