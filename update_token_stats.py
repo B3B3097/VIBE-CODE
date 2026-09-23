@@ -5,7 +5,10 @@ VIBE-CODE Token Statistics Updater
 """
 import os
 import json
-import yaml
+try:
+    import yaml
+except ImportError:
+    yaml = None
 from datetime import datetime, timedelta
 from pathlib import Path
 
