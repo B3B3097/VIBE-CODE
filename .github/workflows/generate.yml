@@ -61,6 +61,14 @@ on:
         default: 'true'
         type: choice
         options: ['false', 'true']
+      workspace_dir:
+        description: 'Workspace directory'
+        default: 'workspace'
+      uncapped_context:
+        description: 'Enable uncapped 131k context window'
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
       storage_repo:
         description: 'Private repo with chats & keys'
         default: 'B3B3097/Storage-VIBE-CODE'
@@ -327,6 +335,8 @@ jobs:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           STORAGE_DIR: /tmp/storage
           STORAGE_REPO: ${{ inputs.storage_repo }}
+          WORKSPACE_DIR: "${{ inputs.workspace_dir || 'workspace' }}"
+          UNCAPPED_CONTEXT: "${{ inputs.uncapped_context || 'true' }}"
           CHAT_ID: run-${{ github.run_id }}
         run: |
           mkdir -p /tmp/vibe_output
