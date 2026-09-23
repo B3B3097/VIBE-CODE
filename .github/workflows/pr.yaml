@@ -52,7 +52,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip' # Кэшируем зависимости для скорости
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
 
       # 4. Устанавливаем зависимости
       - name: 📦 Install Python Dependencies
