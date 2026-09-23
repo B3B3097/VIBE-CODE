@@ -19,16 +19,38 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Verify Python syntax
         run: |
-          for f in *.py; do
-            python3 -m py_compile "$f" && echo "\u2705 $f syntax OK"
+          for f in *.py src/*.py scripts/*.py tests/*.py; do
+            if [ -f "$f" ]; then
+              python3 -m py_compile "$f" && echo "✅ $f syntax OK"
+            fi
           done
 
-      - name: Verify index.html exists
+      - name: Run unit test suite
         run: |
-          test -f index.html && echo "\u2705 index.html present" || exit 1
+          python3 -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Verify Node & Express Server Syntax
+        run: |
+          node --check server.js && echo "✅ server.js syntax OK"
+
+      - name: Verify Web Assets
+        run: |
+          test -f index.html && echo "✅ index.html present" || exit 1
+          test -f admin_panel.html && echo "✅ admin_panel.html present" || exit 1
 
       - name: Show repo tree
         run: ls -la

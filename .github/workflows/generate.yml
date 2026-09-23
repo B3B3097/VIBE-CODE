@@ -87,7 +87,7 @@ jobs:
     steps:
       # ══ 1. CHECKOUT ══════════════════════════════════════════════════════
       - name: Checkout VIBE-CODE
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       # ══ 2. SYSTEM INFO ═══════════════════════════════════════════════════
       - name: System info
@@ -219,7 +219,7 @@ jobs:
       - name: Restore single-agent model cache
         id: cache-single
         if: inputs.agent_mode == 'single' && inputs.model_single != 'vibe-0.5-free' && inputs.model_single != 'vibe-0.5'
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.ollama
           key: ollama-${{ inputs.model_single }}-v2
@@ -233,7 +233,7 @@ jobs:
       - name: Restore planner model cache
         id: cache-planner
         if: inputs.agent_mode == 'multi' && inputs.model_planner != 'vibe-0.5-free' && inputs.model_planner != 'vibe-0.5'
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.ollama
           key: ollama-${{ inputs.model_planner }}-v2
@@ -247,7 +247,7 @@ jobs:
       - name: Restore Bonsai 27B GGUF cache
         id: cache-bonsai
         if: inputs.agent_mode == 'multi' && inputs.model_coder == 'bonsai-27b'
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: /tmp/bonsai-gguf
           key: bonsai-27b-q1-v2
@@ -405,7 +405,7 @@ jobs:
       # ══ 16. ARTIFACT ══════════════════════════════════════════════════════
       - name: Upload output as artifact
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: vibe-output-${{ github.run_id }}
           path: /tmp/vibe_output/

@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 360  # Up to 6 hours continuous autonomous execution
     steps:
       - name: Checkout Codebase
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Setup Python & Dependencies
         uses: actions/setup-python@v5
