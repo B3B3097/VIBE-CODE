@@ -2037,18 +2037,13 @@ async function send() {
   // Dispatch workflow
   const wfResult = await dispatchWorkflow(inputs);
   if (!wfResult.ok) {
-    if (wfResult.isLocalOrRestricted || !token) {
-      appendMsgDOM({
-        role: 'system',
-        sender: '⚡ VIBE-CODE Engine',
-        content: `ℹ️ GitHub Actions dispatch unavailable (requires repo write access). Running in **Local Multi-Agent Mode**...`,
-        time: now()
-      });
-      await runLocalGeneration(prompt, inputs);
-      setSending(false);
-      return;
-    }
-    appendMsgDOM({ role:'system', sender:'System', content: `❌ Dispatch failed: ${wfResult.error}`, time: now() });
+    appendMsgDOM({
+      role: 'system',
+      sender: '⚡ VIBE-CODE Engine',
+      content: `ℹ️ GitHub Actions dispatch (${wfResult.error}). Запуск в **Автономном Multi-Agent Engine**...`,
+      time: now()
+    });
+    await runLocalGeneration(prompt, inputs);
     setSending(false);
     return;
   }
@@ -2138,7 +2133,7 @@ async function dispatchWorkflow(inputs) {
   try {
     const wfInputs = {};
     Object.entries(inputs).forEach(([k,v]) => { wfInputs[k] = String(v); });
-    const r = await fetch(
+    let r = await fetch(
       `https://api.github.com/repos/B3B3097/VIBE-CODE/actions/workflows/generate.yml/dispatches`,
       {
         method: 'POST',
@@ -2150,6 +2145,30 @@ async function dispatchWorkflow(inputs) {
         body: JSON.stringify({ ref:'main', inputs: wfInputs })
       }
     );
+    if (r.status === 422) {
+      const errText = await r.clone().text();
+      const match = errText.match(/Unexpected inputs provided:\s*(\[[^\]]+\])/);
+      if (match) {
+        try {
+          const unexpected = JSON.parse(match[1]);
+          if (Array.isArray(unexpected) && unexpected.length > 0) {
+            unexpected.forEach(k => delete wfInputs[k]);
+            r = await fetch(
+              `https://api.github.com/repos/B3B3097/VIBE-CODE/actions/workflows/generate.yml/dispatches`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Accept': 'application/vnd.github.v3+json',
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ ref:'main', inputs: wfInputs })
+              }
+            );
+          }
+        } catch (_) {}
+      }
+    }
     if (!r.ok) {
       const err = await r.text();
       let msg = `HTTP ${r.status}: ${err.slice(0,200)}`;
