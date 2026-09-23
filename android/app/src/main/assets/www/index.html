@@ -1267,6 +1267,26 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 <div id="toast"></div>
 
 <script>
+// ── Global Error Guard ────────────────────────────────────────────────────────
+window.addEventListener('error', function(e) {
+  console.warn('[VIBE-CODE Error Guard]:', e.message || e);
+});
+window.addEventListener('unhandledrejection', function(e) {
+  console.warn('[VIBE-CODE Promise Rejection]:', e.reason || e);
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+const escapeHtml = escHtml;
+
 // ── JSZip CDN ──────────────────────────────────────────────────────────────────
 const JSZIP_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
 
@@ -1274,7 +1294,9 @@ const JSZIP_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min
 let GH_OWNER = '', GH_REPO_FULL = '', GH_TOKEN_LOCAL = '';
 
 // ── VIBE-CODE Backend ──────────────────────────────────────────────────────────
-const VIBE_API = '/api';
+const VIBE_API = (typeof window !== 'undefined' && (window.location.protocol === 'file:' || !window.location.origin || window.location.origin === 'null'))
+  ? 'https://ais-dev-t4ds4xc6qiwtitvk4v34lb-289838737958.europe-west2.run.app/api'
+  : '/api';
 let vibeUser = ls('vc2_user', null) || { github_login: 'B3B3097', is_owner: true, balance_cents: 999999999, balance_usd: '∞', free_tier: true };  // { github_login, is_owner, balance_cents, balance_usd, free_tier }
 let topupSelectedAmt = 0;
 let topupInvoiceId = null;
@@ -1344,7 +1366,7 @@ async function pushToGitHubFromSettings() {
   }
   if (statusBox) statusBox.textContent = '⏳ Pushing commits to https://github.com/B3B3097/VIBE-CODE...';
   try {
-    const res = await fetch('/api/git/push', {
+    const res = await fetch(VIBE_API + '/git/push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token })
@@ -2058,7 +2080,7 @@ async function runLocalGeneration(prompt, inputs) {
   await sleep(650);
 
   try {
-    const res = await fetch('/api/generate', {
+    const res = await fetch(VIBE_API + '/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, agent_mode: agentMode })
@@ -2746,7 +2768,7 @@ function downloadCurrentWorkspaceZip() {
 async function syncWorkspaceToPrivateStorage() {
   toast('Syncing with B3B3097/Storage-VIBE-CODE...', '');
   try {
-    const res = await fetch('/api/storage/backup', { method: 'POST' });
+    const res = await fetch(VIBE_API + '/storage/backup', { method: 'POST' });
     const data = await res.json();
     toast(data.message || 'Workspace synced to private storage', 'success');
   } catch (err) {
